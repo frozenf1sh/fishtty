@@ -1,4 +1,9 @@
+//go:build !ci
+
 // Package fishpts 提供 fishtty 项目的嵌入式资源。
+//
+// 仅在非 CI 环境编译（go:build !ci）。
+// CI 中 web/dist 尚未构建，由 web_embed_ci.go 提供空占位。
 package fishpts
 
 import "embed"

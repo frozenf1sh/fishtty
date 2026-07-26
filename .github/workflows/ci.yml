@@ -31,8 +31,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
-      - run: go test ./internal/... -v -count=1 -timeout 30s
-      - run: go vet ./...
+      - run: go test -tags ci ./internal/... -v -count=1 -timeout 30s
+      - run: go vet -tags ci ./...
 
   # ── 前端构建 ──
   web-build:
