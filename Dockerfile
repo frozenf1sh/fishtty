@@ -13,7 +13,7 @@ COPY web/ .
 RUN pnpm run build
 
 # ── 阶段 2：Go 后端构建 ──
-FROM golang:1.23-alpine AS go-builder
+FROM golang:1.24-alpine AS go-builder
 RUN apk add --no-cache git
 WORKDIR /src
 COPY go.mod go.sum ./

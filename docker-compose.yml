@@ -1,9 +1,13 @@
 # fishtty 生产部署编排（Docker Compose + Caddy TLS 反代）
 #
-# 使用：
+# 快速部署：
 #   1. 编辑 configs/fishtty-server.yaml 配置 Server
 #   2. 编辑 Caddyfile 替换域名
-#   3. docker compose up -d
+#   3. docker compose pull   # 拉取最新镜像
+#   4. docker compose up -d
+#
+# 更新镜像：
+#   docker compose pull && docker compose up -d
 
 services:
   # ── TLS 反向代理 ──
@@ -17,19 +21,15 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    depends_on:
-      - server
 
   # ── fishtty 中继服务 ──
   server:
-    build: .
+    image: ghcr.io/frozenf1sh/fishtty-server:latest
     restart: unless-stopped
     expose:
       - "8443"
     volumes:
       - ./configs/fishtty-server.yaml:/etc/fishtty/fishtty-server.yaml:ro
-    environment:
-      - FISHTTY_LOG_LEVEL=info
     command: ["--config", "/etc/fishtty/fishtty-server.yaml", "--listen", ":8443"]
 
 volumes:
