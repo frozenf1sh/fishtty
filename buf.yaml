@@ -1,0 +1,22 @@
+version: v2
+modules:
+  - path: proto
+    name: buf.build/frozenf1sh/fishtty
+lint:
+  use:
+    - STANDARD
+  except:
+    # 允许在 oneof 之外使用枚举的零值
+    - ENUM_ZERO_VALUE_SUFFIX
+    # 允许 "v1" 这样的短包名
+    - PACKAGE_VERSION_SUFFIX
+    # RPC 使用流式方法，不需要请求/响应后缀
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    # Bidirectional Stream 天然使用同一消息类型
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    # 保留简洁 Service 名称（FishTTY 而非 FishTTYService）
+    - SERVICE_SUFFIX
+breaking:
+  use:
+    - FILE

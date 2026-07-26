@@ -1,0 +1,28 @@
+# fishtty Caddy 反向代理配置
+#
+# 将 <your-domain.com> 替换为你的公网域名。
+# Caddy 自动从 Let's Encrypt 获取 TLS 证书。
+
+<your-domain.com> {
+    # 日志
+    log {
+        output stdout
+        level INFO
+    }
+
+    # TLS 自动化
+    # tls your-email@example.com
+
+    # 反向代理到 fishtty-server
+    # Connect-RPC + WebSocket + PWA 都走同一个反代规则
+    reverse_proxy server:8443 {
+        # WebSocket 支持（自动检测 Upgrade 头）
+    }
+
+    # 安全头
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}

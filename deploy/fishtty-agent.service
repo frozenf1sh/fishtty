@@ -1,0 +1,40 @@
+# fishtty-agent systemd 服务 — Linux
+#
+# 安装：
+#   sudo cp deploy/fishtty-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now fishtty-agent
+#
+# 查看状态：
+#   systemctl status fishtty-agent
+#   journalctl -u fishtty-agent -f
+
+[Unit]
+Description=fishtty Agent — 远程终端守护进程
+Documentation=https://github.com/frozenf1sh/fishpts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 改成你的实际路径
+ExecStart=/usr/local/bin/fishtty-agent \
+    --server https://your-server.example.com \
+    --token your-device-token \
+    --device-id my-linux-pc \
+    --log-level info
+
+# 安全加固
+Restart=always
+RestartSec=10
+User=your-username
+WorkingDirectory=/home/your-username
+Environment=HOME=/home/your-username
+Environment=SHELL=/bin/bash
+LimitNOFILE=4096
+
+# 只在崩溃/异常退出时重启，正常 SIGTERM 不会重启
+RestartPreventExitStatus=0
+
+[Install]
+WantedBy=multi-user.target

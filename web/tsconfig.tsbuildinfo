@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/gen/fishtty/v1/tunnel_pb.ts","./src/sessions/sessionprovider.tsx","./src/terminal/terminal.tsx","./src/terminal/virtualkeyboard.tsx","./src/terminal/keymap.ts","./src/ws/client.ts"],"version":"5.8.3"}

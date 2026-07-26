@@ -1,0 +1,22 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/frozenf1sh/fishpts/gen
+plugins:
+  # Go Protobuf 消息类型
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+    opt:
+      - paths=source_relative
+  # Connect-Go RPC stub
+  - remote: buf.build/connectrpc/go
+    out: gen
+    opt:
+      - paths=source_relative
+  # TypeScript / JavaScript（供 Web PWA 使用）
+  - remote: buf.build/bufbuild/es
+    out: web/src/gen
+    opt:
+      - target=ts

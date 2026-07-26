@@ -1,0 +1,409 @@
+/* ── fishtty PWA 全局样式 ── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #1e1e1e;
+  --bg-light: #2d2d2d;
+  --bg-lighter: #3c3c3c;
+  --fg: #d4d4d4;
+  --fg-dim: #888;
+  --accent: #0dbc79;
+  --accent-hover: #0f9d68;
+  --danger: #cd3131;
+  --danger-hover: #b52828;
+  --border: #444;
+  --radius: 6px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* 防止移动端下拉刷新和双击缩放 */
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── App 布局 ── */
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 设备列表页 ── */
+
+.devices-view {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.app-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.app-header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--fg-dim);
+  margin-top: 4px;
+  display: block;
+}
+
+.connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.connect-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.connect-form input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-light);
+  color: var(--fg);
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.connect-form input:focus {
+  border-color: var(--accent);
+}
+
+.btn-connect {
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-connect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-connect:not(:disabled):active {
+  background: var(--accent-hover);
+}
+
+.status-text {
+  text-align: center;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+/* ── 终端页 ── */
+
+.terminal-view {
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: var(--bg-light);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.btn-back,
+.btn-new-session {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-lighter);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-back:active,
+.btn-new-session:active {
+  background: var(--border);
+}
+
+.device-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px;
+}
+
+/* ── Session 选项卡 ── */
+
+.session-tabs {
+  display: flex;
+  background: var(--bg-light);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.session-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--fg-dim);
+  transition: background 0.1s, color 0.1s;
+  flex-shrink: 0;
+}
+
+.session-tab--active {
+  background: var(--bg);
+  color: var(--fg);
+  border-bottom: 2px solid var(--accent);
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ── 终端区域 ── */
+
+.terminal-area {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  padding: 4px;
+}
+
+.terminal-container {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+  padding: 4px;
+}
+
+/* ── 虚拟键盘 ── */
+
+.virtual-keyboard {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 6px calc(6px + var(--safe-bottom));
+  background: var(--bg-light);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.vk-btn {
+  min-width: 36px;
+  height: 40px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-lighter);
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.05s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.vk-btn--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.vk-btn--paste {
+  color: var(--accent);
+  font-size: 18px;
+}
+
+/* ── 重连遮罩 ── */
+
+.reconnect-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(30, 30, 30, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  gap: 16px;
+}
+
+.reconnect-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.reconnect-overlay p {
+  color: var(--fg);
+  font-size: 14px;
+}
+
+/* ── 错误 Toast ── */
+
+.error-toast-container {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.error-toast {
+  padding: 10px 14px;
+  background: var(--danger);
+  color: #fff;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  animation: toastIn 0.3s ease-out;
+  pointer-events: auto;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── 响应式 ── */
+
+@media (min-width: 768px) {
+  .virtual-keyboard {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .vk-btn {
+    min-width: 48px;
+    height: 44px;
+    font-size: 16px;
+  }
+
+  .terminal-header {
+    padding: 8px 16px;
+  }
+
+  .session-tab {
+    padding: 8px 18px;
+    font-size: 14px;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --bg-light: #f5f5f5;
+    --bg-lighter: #e8e8e8;
+    --fg: #333333;
+    --fg-dim: #999;
+    --border: #ddd;
+  }
+
+  .terminal-container .xterm {
+    /* 终端始终深色背景，不受系统主题影响 */
+  }
+}

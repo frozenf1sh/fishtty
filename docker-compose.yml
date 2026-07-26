@@ -1,0 +1,46 @@
+# fishtty 生产部署编排
+#
+# 组件：
+#   - caddy:    TLS 终止 + 反向代理
+#   - server:   fishtty-server（Connect-RPC + WebSocket + PWA 静态文件）
+#
+# 用法：
+#   1. 编辑 Caddyfile 中的域名和邮箱
+#   2. docker compose up -d
+#   3. Agent 通过 wss://<domain>/fishtty.v1.FishTTY/Tunnel 连接
+
+version: "3.9"
+
+services:
+  # ── TLS 反向代理 ──
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - server
+
+  # ── fishtty 中继服务 ──
+  server:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "8443"
+    # 可选：挂载配置文件来管理设备 token
+    # volumes:
+    #   - ./config:/config
+    environment:
+      - FISHTTY_LOG_LEVEL=info
+    # 生产环境中，server 由 caddy 代理，自身使用 HTTP
+    # Caddy 处理外部 TLS，内部通信走 HTTP
+    command: ["--listen", ":8443", "--log-level", "info"]
+
+volumes:
+  caddy_data:
+  caddy_config:

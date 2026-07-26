@@ -1,0 +1,243 @@
+syntax = "proto3";
+
+package fishtty.v1;
+
+option go_package = "github.com/frozenf1sh/fishpts/gen/fishtty/v1;fishttyv1";
+
+// ──────────────────────────────────────────────────────────────
+// FishTTY — 公网中转远程终端控制系统
+// ──────────────────────────────────────────────────────────────
+// Agent（NAT 后）作为 Connect-RPC 客户端，调用 Tunnel() 建立反向长连接。
+// Server（公网）永远不主动拨号 Agent。
+// 单条双向流承载所有 PTY 会话的控制面和数据面消息，
+// 通过 session_id 多路复用、oneof payload 区分消息类型。
+
+// =================================================================
+// Service 定义
+// =================================================================
+
+service FishTTY {
+  // Tunnel 是唯一的 RPC：Agent 调用它建立双向流隧道。
+  // 流上承载 TunnelMessage，按 session_id 路由到不同 PTY 会话。
+  rpc Tunnel(stream TunnelMessage) returns (stream TunnelMessage);
+}
+
+// =================================================================
+// 消息信封
+// =================================================================
+
+message TunnelMessage {
+  // PTY 会话标识符。隧道级消息（认证、心跳）此字段为空。
+  string session_id = 1;
+
+  // 消息负载，按 oneof 区分类型。
+  // 字段编号按类别分组，便于扩展：
+  //   10-19  认证
+  //   20-29  会话生命周期
+  //   30-39  数据面
+  //   40-49  会话控制
+  //   50-59  重连
+  //   60-69  健康检查
+  //   70-79  错误报告
+  //   80-99  保留
+  oneof payload {
+    // ── 认证 ──
+    AuthRequest    auth_req     = 10;
+    AuthResponse   auth_resp    = 11;
+
+    // ── 会话生命周期 ──
+    SessionInit     session_init      = 20;
+    SessionCreated  session_created   = 21;
+    SessionDestroy  session_destroy   = 22;
+    SessionDestroyed session_destroyed = 23;
+
+    // ── 数据面 ──
+    DataChunk       data_chunk   = 30;
+
+    // ── 会话控制 ──
+    Resize          resize       = 40;
+
+    // ── 重连 ──
+    Reattach        reattach     = 50;
+    ReattachData    reattach_data = 51;
+
+    // ── 健康检查 ──
+    Heartbeat       heartbeat    = 60;
+    HeartbeatAck    heartbeat_ack = 61;
+
+    // ── 错误 ──
+    ErrorMsg        error_msg    = 70;
+  }
+}
+
+// =================================================================
+// 认证消息
+// =================================================================
+
+message AuthRequest {
+  // 设备唯一标识（UUID，Agent 安装时生成）。
+  string device_id = 1;
+  // 预共享认证令牌。
+  string token = 2;
+  // Agent 版本号（用于兼容性检查）。
+  string agent_version = 3;
+  // Agent 所在机器的主机名。
+  string hostname = 4;
+  // 操作系统与架构，如 "linux/amd64"。
+  string platform = 5;
+}
+
+message AuthResponse {
+  AuthStatus status = 1;
+  // 可读消息（认证失败时说明原因）。
+  string message = 2;
+  // Server 分配的隧道 ID（连接生命周期内有效）。
+  string tunnel_id = 3;
+}
+
+enum AuthStatus {
+  AUTH_STATUS_UNSPECIFIED    = 0;
+  AUTH_STATUS_OK             = 1;
+  AUTH_STATUS_UNAUTHORIZED   = 2;
+  AUTH_STATUS_DEVICE_NOT_FOUND = 3;
+  AUTH_STATUS_VERSION_TOO_OLD  = 4;
+}
+
+// =================================================================
+// 会话生命周期消息
+// =================================================================
+
+message SessionInit {
+  // 由发起方（Server/前端）生成 UUID 并填入。
+  // Agent 收到后直接用此 ID 创建会话，不再自行分配。
+  // 这样避免了异步回调时 session_id 匹配困难的问题。
+  string session_id = 1;
+
+  // 初始终端尺寸（字符列宽 x 行高）。
+  uint32 cols = 2;
+  uint32 rows = 3;
+
+  // 要执行的命令。空字符串表示使用用户默认 shell。
+  string command = 4;
+
+  // 额外环境变量（与 Agent 环境合并）。
+  map<string, string> env = 5;
+
+  // 工作目录。空字符串表示用户主目录。
+  string work_dir = 6;
+}
+
+message SessionCreated {
+  // 回显 SessionInit 中的 session_id，确认会话已创建。
+  string session_id = 1;
+  SessionStatus status = 2;
+  // 失败时的说明信息。
+  string message = 3;
+}
+
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  SESSION_STATUS_OK          = 1;
+  SESSION_STATUS_FAILED      = 2;
+}
+
+message SessionDestroy {
+  string session_id = 1;
+}
+
+message SessionDestroyed {
+  string session_id = 1;
+}
+
+// =================================================================
+// 数据面消息
+// =================================================================
+
+message DataChunk {
+  // PTY 会话标识符。
+  string session_id = 1;
+
+  // 序列号。Agent→Server 方向单调递增（每会话从 1 开始）。
+  // Mobile→Server 方向（stdin）设为 0，不纳入序列追踪。
+  uint64 seq = 2;
+
+  // 原始终端字节（PTY 的 stdout，或写入 PTY 的 stdin）。
+  bytes data = 3;
+}
+
+// =================================================================
+// 会话控制消息
+// =================================================================
+
+message Resize {
+  string session_id = 1;
+  // 字符列数。
+  uint32 cols = 2;
+  // 字符行数。
+  uint32 rows = 3;
+}
+
+// =================================================================
+// 重连消息
+// =================================================================
+
+message Reattach {
+  // 要重新挂载的会话 ID。
+  string session_id = 1;
+
+  // 客户端最后确认的 seq 号。
+  // Agent 将重放 ring buffer 中所有 seq > last_ack_seq 的 chunk。
+  uint64 last_ack_seq = 2;
+}
+
+message ReattachData {
+  // 会话标识符。
+  string session_id = 1;
+
+  // 重放数据的实际起始 seq。
+  // 若 ring buffer 已覆盖旧数据，此值将 > (last_ack_seq + 1)。
+  uint64 start_seq = 2;
+
+  // 按 seq 顺序排列的重放 chunks。
+  repeated DataChunk chunks = 3;
+}
+
+// =================================================================
+// 健康检查消息
+// =================================================================
+
+message Heartbeat {
+  // Unix 毫秒时间戳。
+  int64 timestamp = 1;
+}
+
+message HeartbeatAck {
+  // 回显 Heartbeat 中的时间戳。
+  int64 timestamp = 1;
+}
+
+// =================================================================
+// 错误消息
+// =================================================================
+
+message ErrorMsg {
+  // 关联的会话 ID，隧道级错误时为空。
+  string session_id = 1;
+
+  // 机器可读错误码。
+  ErrorCode code = 2;
+
+  // 人类可读错误描述。
+  string message = 3;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED        = 0;
+  ERROR_CODE_SESSION_NOT_FOUND  = 1;
+  ERROR_CODE_COMMAND_NOT_FOUND  = 2;
+  ERROR_CODE_COMMAND_FAILED     = 3;
+  ERROR_CODE_SESSION_LIMIT_REACHED = 4;
+  ERROR_CODE_INVALID_MESSAGE    = 5;
+  ERROR_CODE_INTERNAL_ERROR     = 6;
+  ERROR_CODE_UNAUTHORIZED       = 7;
+}
