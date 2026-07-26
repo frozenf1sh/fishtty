@@ -50,6 +50,23 @@ build-agent:
 	go build -ldflags "$(GO_LDFLAGS)" -o bin/fishtty-agent ./cmd/agent/
 	@echo "✅ fishtty-agent 已构建 (bin/fishtty-agent)"
 
+# ── 跨平台编译 Agent ──
+
+build-agent-linux-amd64:
+	GOOS=linux GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o bin/fishtty-agent-linux-amd64 ./cmd/agent/
+	@echo "✅ fishtty-agent (linux/amd64) 已构建 (bin/fishtty-agent-linux-amd64)"
+
+build-agent-linux-arm64:
+	GOOS=linux GOARCH=arm64 go build -ldflags "$(GO_LDFLAGS)" -o bin/fishtty-agent-linux-arm64 ./cmd/agent/
+	@echo "✅ fishtty-agent (linux/arm64) 已构建 (bin/fishtty-agent-linux-arm64)"
+
+build-agent-darwin-arm64:
+	GOOS=darwin GOARCH=arm64 go build -ldflags "$(GO_LDFLAGS)" -o bin/fishtty-agent-darwin-arm64 ./cmd/agent/
+	@echo "✅ fishtty-agent (darwin/arm64) 已构建 (bin/fishtty-agent-darwin-arm64)"
+
+build-agent-all: build-agent-linux-amd64 build-agent-linux-arm64 build-agent-darwin-arm64
+	@echo "✅ 全平台 Agent 构建完成"
+
 # ── 测试 ──
 
 test:
