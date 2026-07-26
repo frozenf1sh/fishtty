@@ -82,6 +82,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 配置 Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: 提取 metadata（标签/注解）
         id: meta
         uses: docker/metadata-action@v5
