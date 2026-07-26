@@ -1,40 +1,39 @@
-# fishtty-agent systemd 服务 — Linux
+# fishtty-agent systemd 服务 — Linux 开机自启
 #
-# 安装：
-#   sudo cp deploy/fishtty-agent.service /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now fishtty-agent
+# 安装步骤：
+#   1. sudo cp fishtty-agent /usr/local/bin/
+#   2. sudo mkdir -p /etc/fishtty
+#   3. sudo cp configs/fishtty-agent.yaml /etc/fishtty/
+#   4. 编辑 /etc/fishtty/fishtty-agent.yaml，填入 server 地址和 token
+#   5. sudo cp deploy/fishtty-agent.service /etc/systemd/system/
+#   6. sudo systemctl daemon-reload
+#   7. sudo systemctl enable --now fishtty-agent
 #
-# 查看状态：
-#   systemctl status fishtty-agent
-#   journalctl -u fishtty-agent -f
+# 管理：
+#   systemctl status fishtty-agent    # 查看状态
+#   journalctl -u fishtty-agent -f     # 实时日志
+#   systemctl restart fishtty-agent    # 重启
+#   systemctl stop fishtty-agent       # 停止
 
 [Unit]
 Description=fishtty Agent — 远程终端守护进程
-Documentation=https://github.com/frozenf1sh/fishpts
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-# 改成你的实际路径
-ExecStart=/usr/local/bin/fishtty-agent \
-    --server https://your-server.example.com \
-    --token your-device-token \
-    --device-id my-linux-pc \
-    --log-level info
+ExecStart=/usr/local/bin/fishtty-agent --config /etc/fishtty/fishtty-agent.yaml
 
-# 安全加固
 Restart=always
 RestartSec=10
-User=your-username
-WorkingDirectory=/home/your-username
-Environment=HOME=/home/your-username
-Environment=SHELL=/bin/bash
+
+# 安全加固：以非 root 用户运行
+User=%u
+WorkingDirectory=%h
 LimitNOFILE=4096
 
-# 只在崩溃/异常退出时重启，正常 SIGTERM 不会重启
-RestartPreventExitStatus=0
+# 环境变量（token 也可以放这里，优先级高于配置文件）
+# Environment=FISHTTY_TOKEN=your-secret-token
 
 [Install]
 WantedBy=multi-user.target

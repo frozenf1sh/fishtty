@@ -1,12 +1,13 @@
 // fishtty-server：公网中继服务。
 //
-// 接受 Agent 的 Connect-RPC 反向隧道连接和 Mobile 的 WebSocket 连接，
-// 通过 Relay 在两者之间双向转发 TunnelMessage。
-// 内置嵌入式 PWA 静态文件（web/dist），同时支持 SPA 路由 fallback。
+// 配置优先级：命令行参数 > 环境变量 > 配置文件 > 默认值。
+// 配置文件：fishtty-server.yaml（当前目录、/etc/fishtty/、~/.config/fishtty/）
 //
 // 用法：
 //
-//	fishtty-server --listen :8443 --tls-cert server.crt --tls-key server.key
+//	fishtty-server                                    # 全部默认
+//	fishtty-server --listen :8080 --log-level debug   # 命令行覆盖
+//	fishtty-server --config /path/to/server.yaml      # 指定配置文件
 package main
 
 import (
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	fishpts "github.com/frozenf1sh/fishpts"
+	"github.com/frozenf1sh/fishpts/internal/config"
 	"github.com/frozenf1sh/fishpts/internal/server/adapter/connectrpc"
 	wspkg "github.com/frozenf1sh/fishpts/internal/server/adapter/websocket"
 	"github.com/frozenf1sh/fishpts/internal/server/service"
@@ -32,48 +34,46 @@ var Version = "dev"
 var apiPrefixes = []string{"/ws", "/metrics", "/fishtty.v1.FishTTY/"}
 
 func main() {
+	// ── 命令行参数（覆盖配置文件） ──
 	var (
-		listenAddr = flag.String("listen", ":8443", "监听地址")
-		tlsCert    = flag.String("tls-cert", "", "TLS 证书文件路径")
-		tlsKey     = flag.String("tls-key", "", "TLS 私钥文件路径")
-		logLevel   = flag.String("log-level", "info", "日志级别: debug, info, warn, error")
-		webDir     = flag.String("web-dir", "", "PWA 静态文件目录（覆盖内嵌）")
-		showVer    = flag.Bool("version", false, "显示版本号并退出")
+		listen   = flag.String("listen", "", "监听地址（覆盖配置文件）")
+		tlsCert  = flag.String("tls-cert", "", "TLS 证书路径")
+		tlsKey   = flag.String("tls-key", "", "TLS 私钥路径")
+		logLevel = flag.String("log-level", "", "日志级别")
+		webDir   = flag.String("web-dir", "", "PWA 静态文件目录")
+		cfgFile  = flag.String("config", "", "配置文件路径")
+		showVer  = flag.Bool("version", false, "显示版本号并退出")
 	)
 	flag.Parse()
 	if *showVer { fmt.Println("fishtty-server", Version); os.Exit(0) }
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: parseLevel(*logLevel)})))
-	slog.Info("fishtty-server 启动", "version", Version, "listen", *listenAddr)
+	// ── 加载配置 ──
+	cfg, err := config.LoadServer(*cfgFile)
+	if err != nil { fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err); os.Exit(1) }
+
+	// 命令行覆盖配置文件
+	if *listen != "" { cfg.Listen = *listen }
+	if *tlsCert != "" { cfg.TLSCert = *tlsCert }
+	if *tlsKey != "" { cfg.TLSKey = *tlsKey }
+	if *logLevel != "" { cfg.LogLevel = *logLevel }
+	if *webDir != "" { cfg.WebDir = *webDir }
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: parseLevel(cfg.LogLevel)})))
+	slog.Info("fishtty-server 启动", "version", Version, "listen", cfg.Listen)
 
 	// ── 初始化依赖 ──
 	devices := service.NewDeviceRegistry()
 	relay := service.NewRelay()
-
 	mux := http.NewServeMux()
 
-	// Connect-RPC：Agent 隧道
-	tunnelH := connectrpc.NewHandler(devices, relay)
-	tunnelPath, tunnelHTTP := tunnelH.Route()
+	tunnelPath, tunnelHTTP := connectrpc.NewHandler(devices, relay).Route()
 	mux.Handle(tunnelPath, tunnelHTTP)
-
-	// WebSocket：Mobile 接入
 	mux.Handle("/ws", wspkg.NewHandler(devices, relay))
+	mux.HandleFunc("/metrics", metricsHandler(devices, relay))
 
-	// Prometheus 指标
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "fishtty_connected_agents %d\n", relay.AgentCount())
-		fmt.Fprintf(w, "fishtty_connected_mobiles %d\n", relay.MobileCount())
-		fmt.Fprintf(w, "fishtty_active_sessions %d\n", relay.SessionCount())
-		fmt.Fprintf(w, "fishtty_registered_devices %d\n", devices.Count())
-		fmt.Fprintf(w, "fishtty_online_devices %d\n", devices.CountOnline())
-	})
-
-	// PWA 静态文件
 	var staticFS fs.FS
-	if *webDir != "" {
-		staticFS = os.DirFS(*webDir)
+	if cfg.WebDir != "" {
+		staticFS = os.DirFS(cfg.WebDir)
 	} else if sub, err := fs.Sub(fishpts.WebDist, "web/dist"); err == nil {
 		staticFS = sub
 	}
@@ -82,10 +82,10 @@ func main() {
 	// ── HTTP Server ──
 	protocols := &http.Protocols{}
 	protocols.SetHTTP1(true)
-	if *tlsCert == "" { protocols.SetUnencryptedHTTP2(true) } else { protocols.SetHTTP2(true) }
+	if cfg.TLSCert == "" { protocols.SetUnencryptedHTTP2(true) } else { protocols.SetHTTP2(true) }
 
 	srv := &http.Server{
-		Addr: *listenAddr, Handler: mux, Protocols: protocols,
+		Addr: cfg.Listen, Handler: mux, Protocols: protocols,
 		ReadTimeout: 0, ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout: 0, IdleTimeout: 120 * time.Second,
 	}
@@ -100,8 +100,9 @@ func main() {
 	}()
 
 	var serveErr error
-	if *tlsCert != "" && *tlsKey != "" {
-		serveErr = srv.ListenAndServeTLS(*tlsCert, *tlsKey)
+	if cfg.TLSCert != "" && cfg.TLSKey != "" {
+		slog.Info("使用 TLS", "cert", cfg.TLSCert, "key", cfg.TLSKey)
+		serveErr = srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
 	} else {
 		slog.Warn("未配置 TLS，使用明文 HTTP（仅用于开发/内网）")
 		serveErr = srv.ListenAndServe()
@@ -110,7 +111,15 @@ func main() {
 	slog.Info("fishtty-server 已退出")
 }
 
-// ── SPA fallback ──
+// ── 辅助 ──
+
+func metricsHandler(devices *service.DeviceRegistry, relay *service.Relay) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "fishtty_connected_agents %d\nfishtty_connected_mobiles %d\nfishtty_active_sessions %d\nfishtty_registered_devices %d\nfishtty_online_devices %d\n",
+			relay.AgentCount(), relay.MobileCount(), relay.SessionCount(), devices.Count(), devices.CountOnline())
+	}
+}
 
 func spaHandler(fileFS fs.FS) http.Handler {
 	fs := http.FileServer(http.FS(fileFS))

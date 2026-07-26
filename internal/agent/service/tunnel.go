@@ -16,37 +16,31 @@ import (
 	"github.com/frozenf1sh/fishpts/internal/agent/adapter/connectrpc"
 	"github.com/frozenf1sh/fishpts/internal/agent/adapter/pty"
 	"github.com/frozenf1sh/fishpts/internal/agent/message"
+	"github.com/frozenf1sh/fishpts/internal/config"
 	"github.com/frozenf1sh/fishpts/internal/domain"
 	"github.com/frozenf1sh/fishpts/pkg/backoff"
 	"github.com/frozenf1sh/fishpts/pkg/h2c"
 )
 
-// ── 常量 ──
-
-const (
-	heartbeatInterval     = 15 * time.Second
-	heartbeatMissThreshold = 3
-	sendChSize            = 256
-)
+const sendChSize = 256
 
 // ── TunnelService ──
 
 // TunnelService 管理 Agent 到 Server 的 Connect-RPC 隧道生命周期。
-// 负责：连接建立、认证、心跳、消息收发、指数退避重连。
-// 依赖接口而非具体类型，支持单测 mock。
 type TunnelService struct {
-	serverAddr string
-	deviceID   string
-	token      string
-	agentVer   string
-	hostname   string
-	platform   string
-	httpClient *http.Client
-	rpcClient  fishttyv1connect.FishTTYClient
+	serverAddr      string
+	deviceID        string
+	token           string
+	agentVer        string
+	hostname        string
+	platform        string
+	httpClient      *http.Client
+	rpcClient       fishttyv1connect.FishTTYClient
+	heartbeatCfg    config.HeartbeatConfig
 
-	sendCh        chan *fishttyv1.TunnelMessage
+	sendCh         chan *fishttyv1.TunnelMessage
 	heartbeatAckCh chan int64
-	backoff       *backoff.Exponential
+	backoff        *backoff.Exponential
 
 	dispatcher domain.MessageDispatcher
 	sessions   domain.SessionManager
@@ -60,6 +54,9 @@ type Config struct {
 	Token      string
 	AgentVer   string
 	Hostname   string
+	Heartbeat  config.HeartbeatConfig
+	Reconnect  config.ReconnectConfig
+	RingBuffer config.RingBufferConfig
 }
 
 // NewTunnelService 创建隧道服务。
@@ -77,9 +74,10 @@ func NewTunnelService(cfg Config) *TunnelService {
 		platform:       fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		httpClient:     httpClient,
 		rpcClient:      rpcClient,
+		heartbeatCfg:   cfg.Heartbeat,
 		sendCh:         make(chan *fishttyv1.TunnelMessage, sendChSize),
 		heartbeatAckCh: make(chan int64, 16),
-		backoff:        backoff.DefaultExponential(),
+		backoff:        backoff.NewExponential(cfg.Reconnect.MinDelay, cfg.Reconnect.MaxDelay, cfg.Reconnect.ResetAfter),
 		logger:         logger,
 	}
 
@@ -227,7 +225,7 @@ func (ts *TunnelService) recvLoop(ctx context.Context, conn domain.StreamConn) e
 
 func (ts *TunnelService) heartbeatLoop(ctx context.Context) {
 	defer ts.recoverLog("heartbeatLoop")
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(ts.heartbeatCfg.Interval)
 	defer ticker.Stop()
 	missed := 0
 
@@ -242,7 +240,7 @@ func (ts *TunnelService) heartbeatLoop(ctx context.Context) {
 		case <-ts.heartbeatAckCh:
 			missed = 0
 		}
-		if missed >= heartbeatMissThreshold {
+		if missed >= ts.heartbeatCfg.MissThreshold {
 			ts.logger.Warn("心跳超时", "missed", missed)
 			return
 		}

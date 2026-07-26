@@ -1,0 +1,14 @@
+# ── fishtty-server 配置文件 ──
+# 默认路径：./fishtty-server.yaml、/etc/fishtty/fishtty-server.yaml、~/.config/fishtty/fishtty-server.yaml
+# 环境变量覆盖：FISHTTY_LISTEN、FISHTTY_TLS_CERT 等（点号变下划线）
+
+listen: ":8443"          # 监听地址
+
+# TLS（生产环境配置；留空 = 开发模式 h2c）
+# tls_cert: "/etc/fishtty/server.crt"
+# tls_key:  "/etc/fishtty/server.key"
+
+log_level: "info"        # debug | info | warn | error
+
+# PWA 静态文件目录（留空 = 使用内嵌构建产物）
+# web_dir: "/var/www/fishtty"

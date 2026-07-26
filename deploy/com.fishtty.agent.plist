@@ -2,63 +2,41 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  fishtty-agent launchd 服务 — macOS
+  fishtty-agent launchd 服务 — macOS 开机自启
 
-  安装：
-    cp deploy/com.fishtty.agent.plist ~/Library/LaunchAgents/
-    launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist
+  安装步骤：
+    1. sudo cp fishtty-agent /usr/local/bin/
+    2. mkdir -p ~/.config/fishtty
+    3. cp configs/fishtty-agent.yaml ~/.config/fishtty/
+    4. 编辑 ~/.config/fishtty/fishtty-agent.yaml，填入 server 和 token
+    5. cp deploy/com.fishtty.agent.plist ~/Library/LaunchAgents/
+    6. launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist
 
-  卸载：
-    launchctl unload ~/Library/LaunchAgents/com.fishtty.agent.plist
-
-  查看日志：
-    launchctl print gui/$(id -u)/com.fishtty.agent
+  管理：
+    launchctl list | grep fishtty              # 查看状态
+    tail -f /usr/local/var/log/fishtty-agent.log  # 查看日志
+    launchctl unload ~/Library/LaunchAgents/com.fishtty.agent.plist  # 卸载
 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.fishtty.agent</string>
-
     <key>ProgramArguments</key>
     <array>
-        <!-- 改成你的实际路径 -->
         <string>/usr/local/bin/fishtty-agent</string>
-        <string>--server</string>
-        <string>https://your-server.example.com</string>
-        <string>--token</string>
-        <string>your-device-token</string>
-        <string>--device-id</string>
-        <string>my-mac</string>
-        <string>--log-level</string>
-        <string>info</string>
+        <string>--config</string>
+        <string>/Users/REPLACE_USERNAME/.config/fishtty/fishtty-agent.yaml</string>
     </array>
-
-    <!-- 环境变量 -->
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>HOME</key>
-        <string>/Users/your-username</string>
-        <key>SHELL</key>
-        <string>/bin/zsh</string>
-    </dict>
-
-    <key>RunAtLoad</key>
-    <true/>
-
-    <key>KeepAlive</key>
-    <true/>
-
-    <!-- 崩溃后 10 秒自动重启 -->
-    <key>ThrottleInterval</key>
-    <integer>10</integer>
-
-    <!-- 日志 -->
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
     <key>StandardOutPath</key>
     <string>/usr/local/var/log/fishtty-agent.log</string>
     <key>StandardErrorPath</key>
     <string>/usr/local/var/log/fishtty-agent.log</string>
-
-    <key>WorkingDirectory</key>
-    <string>/Users/your-username</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key><string>/Users/REPLACE_USERNAME</string>
+    </dict>
 </dict>
 </plist>

@@ -39,48 +39,114 @@ make build
 - `bin/fishtty-server` — 公网中继服务（内嵌 PWA）
 - `bin/fishtty-agent`  — PC 端守护进程
 
-### 2. 部署 Server（公网 VPS）
+## 配置管理
 
-```bash
-# 直接运行（开发/内网）
-./bin/fishtty-server --listen :8080 --log-level debug
+所有组件使用统一的 YAML 配置文件。优先级：**命令行 > 环境变量 > 配置文件 > 默认值**。
 
-# 使用 TLS
-./bin/fishtty-server --listen :443 --tls-cert server.crt --tls-key server.key
+### Server 配置
 
-# Docker Compose（推荐生产部署）
-docker compose up -d
-# 编辑 Caddyfile，将 <your-domain.com> 替换为实际域名
+参见 `configs/fishtty-server.yaml`：
+
+```yaml
+listen: ":8443"
+log_level: "info"
+# tls_cert: "/etc/fishtty/server.crt"   # 生产环境
+# tls_key:  "/etc/fishtty/server.key"
 ```
 
-### 3. 运行 Agent（家用 PC）
+### Agent 配置
+
+参见 `configs/fishtty-agent.yaml`：
+
+```yaml
+server: "https://fishtty.example.com"
+token: "your-device-token"
+device_id: ""          # 留空 = 主机名
+log_level: "info"
+
+heartbeat:
+  interval: 15s
+  miss_threshold: 3
+
+reconnect:
+  min_delay: 1s
+  max_delay: 60s
+  reset_after: 30s
+
+ring_buffer:
+  size_kb: 128
+```
+
+环境变量可覆盖任意配置项：`FISHTTY_TOKEN`、`FISHTTY_SERVER`、`FISHTTY_LOG_LEVEL` 等。
+
+---
+
+### 2. 部署 Server（公网 VPS）
+
+**Docker Compose（推荐）**：
+
+```bash
+# 1. 编辑配置
+cp configs/fishtty-server.yaml configs/fishtty-server.yaml
+vim configs/fishtty-server.yaml   # 改 listen/log_level
+
+# 2. 编辑 Caddyfile 域名
+vim Caddyfile                     # 替换 <your-domain.com>
+
+# 3. 启动
+docker compose up -d
+
+# 4. 查看日志
+docker compose logs -f server
+```
+
+**直接运行（开发/内网）**：
+
+```bash
+# 默认配置 + 命令行覆盖
+./bin/fishtty-server --listen :8080 --log-level debug
+
+# 指定配置文件
+./bin/fishtty-server --config /etc/fishtty/server.yaml
+
+# 启用 TLS
+./bin/fishtty-server --config server.yaml --tls-cert server.crt --tls-key server.key
+```
+
+### 3. 部署 Agent（家用 PC）
 
 **Linux（systemd 开机自启）**：
 
 ```bash
-# 1. 复制二进制
+# 1. 安装二进制 + 配置
 sudo cp bin/fishtty-agent /usr/local/bin/
+sudo mkdir -p /etc/fishtty
+sudo cp configs/fishtty-agent.yaml /etc/fishtty/
 
-# 2. 编辑 service 文件里的 --server / --token / --device-id / User / WorkingDirectory
-vim deploy/fishtty-agent.service
+# 2. 编辑配置（填入你的 server 地址和 token）
+sudo vim /etc/fishtty/fishtty-agent.yaml
 
-# 3. 安装并启动
+# 3. 安装并启动服务
 sudo cp deploy/fishtty-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now fishtty-agent
 
-# 4. 查看日志
+# 4. 查看状态
+systemctl status fishtty-agent
 journalctl -u fishtty-agent -f
 ```
 
 **macOS（launchd 开机自启）**：
 
 ```bash
-# 1. 复制二进制
+# 1. 安装二进制 + 配置
 sudo cp bin/fishtty-agent /usr/local/bin/
+mkdir -p ~/.config/fishtty
+cp configs/fishtty-agent.yaml ~/.config/fishtty/
 
-# 2. 编辑 plist 里的参数
-vim deploy/com.fishtty.agent.plist
+# 2. 编辑配置 + plist（替换用户名）
+vim ~/.config/fishtty/fishtty-agent.yaml
+# 编辑 deploy/com.fishtty.agent.plist，把 REPLACE_USERNAME 改成你的用户名
 
 # 3. 安装并启动
 cp deploy/com.fishtty.agent.plist ~/Library/LaunchAgents/
@@ -95,9 +161,9 @@ tail -f /usr/local/var/log/fishtty-agent.log
 ```bash
 ./bin/fishtty-agent \
   --server https://your-server.example.com \
-  --token my-device-token \
-  --device-id my-home-pc \
-  --log-level info
+  --token my-device-token
+# 或使用配置文件
+./bin/fishtty-agent --config ./agent.yaml
 ```
 
 ### 4. 连接移动端
