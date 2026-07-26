@@ -1,0 +1,29 @@
+# ── 构建产物 ──
+bin/
+web/dist/
+
+# ── Go ──
+*.exe
+*.test
+*.out
+vendor/
+
+# ── Node ──
+node_modules/
+web/node_modules/
+web/.pnpm-store/
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── 临时文件 ──
+tmp/
+temp/
