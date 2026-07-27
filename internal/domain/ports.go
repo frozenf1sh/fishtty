@@ -103,6 +103,7 @@ type RelayRouter interface {
 	UnregisterMobile(connID string)
 	RouteFromAgent(deviceID string, msg *fishttyv1.TunnelMessage)
 	RouteFromMobile(connID string, msg *fishttyv1.TunnelMessage)
+	CleanSession(sid string) // 清理指定 session 的 ownership 映射
 	AgentCount() int
 	MobileCount() int
 	SessionCount() int

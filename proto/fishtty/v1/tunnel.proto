@@ -240,4 +240,12 @@ enum ErrorCode {
   ERROR_CODE_INVALID_MESSAGE    = 5;
   ERROR_CODE_INTERNAL_ERROR     = 6;
   ERROR_CODE_UNAUTHORIZED       = 7;
+  // 会话已被销毁或过期（Agent 端不存在该 session）。
+  ERROR_CODE_SESSION_LOST       = 8;
+  // 目标 Agent 不在线，无法路由消息。
+  ERROR_CODE_AGENT_UNREACHABLE  = 9;
+  // 中继层通道已满，消息被丢弃。
+  ERROR_CODE_CHANNEL_FULL       = 10;
+  // 连接建立超时（WebSocket 或 Connect-RPC 握手超时）。
+  ERROR_CODE_CONNECTION_TIMEOUT = 11;
 }
