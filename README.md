@@ -113,57 +113,69 @@ docker compose logs -f server
 ./bin/fishtty-server --config server.yaml --tls-cert server.crt --tls-key server.key
 ```
 
-### 3. 部署 Agent（家用 PC）
+### 3. 部署 Agent
 
-**Linux（systemd 开机自启）**：
-
-```bash
-# 1. 安装二进制 + 配置
-sudo cp bin/fishtty-agent /usr/local/bin/
-sudo mkdir -p /etc/fishtty
-sudo cp configs/fishtty-agent.yaml /etc/fishtty/
-
-# 2. 编辑配置（填入你的 server 地址和 token）
-sudo vim /etc/fishtty/fishtty-agent.yaml
-
-# 3. 安装并启动服务
-sudo cp deploy/fishtty-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now fishtty-agent
-
-# 4. 查看状态
-systemctl status fishtty-agent
-journalctl -u fishtty-agent -f
-```
-
-**macOS（launchd 开机自启）**：
+Agent 部署包一键生成，包含：二进制 + 配置文件模板 + 守护进程文件 + 安装脚本。
 
 ```bash
-# 1. 安装二进制 + 配置
-sudo cp bin/fishtty-agent /usr/local/bin/
-mkdir -p ~/.config/fishtty
-cp configs/fishtty-agent.yaml ~/.config/fishtty/
+# 生成全平台部署包
+make deploy-agent-all
 
-# 2. 编辑配置 + plist（替换用户名）
-vim ~/.config/fishtty/fishtty-agent.yaml
-# 编辑 deploy/com.fishtty.agent.plist，把 REPLACE_USERNAME 改成你的用户名
-
-# 3. 安装并启动
-cp deploy/com.fishtty.agent.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist
-
-# 4. 查看日志
-tail -f /usr/local/var/log/fishtty-agent.log
+# 或单平台
+make deploy-agent-linux-amd64     # Linux x86_64
+make deploy-agent-linux-arm64     # Linux ARM64（树莓派等）
+make deploy-agent-darwin-arm64    # macOS Apple Silicon
 ```
 
-**直接运行（调试）**：
+输出在 `deploy/` 目录下，每平台一个文件夹。
+
+#### Linux 部署（systemd 守护进程）
+
+```
+1. 将 deploy/linux-amd64/ 整个目录拷贝到目标机器
+2. cd deploy/linux-amd64/
+3. sudo ./install.sh                           # 一键安装
+4. sudo vim /etc/fishtty/fishtty-agent.yaml    # 编辑 server + token
+5. sudo systemctl enable --now fishtty-agent   # 启动并开机自启
+```
+
+管理命令：
+```bash
+systemctl status fishtty-agent       # 查看状态
+journalctl -u fishtty-agent -f        # 实时日志
+systemctl restart fishtty-agent       # 重启
+systemctl stop fishtty-agent          # 停止
+```
+
+#### macOS 部署（launchd 守护进程）
+
+```
+1. 将 deploy/darwin-arm64/ 整个目录拷贝到目标 Mac
+2. cd deploy/darwin-arm64/
+3. ./install.sh                                    # 一键安装
+4. vim /usr/local/etc/fishtty/fishtty-agent.yaml   # 编辑 server + token
+5. launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist  # 启动
+```
+
+管理命令：
+```bash
+launchctl list | grep fishtty         # 查看状态
+tail -f /usr/local/var/log/fishtty-agent.log  # 实时日志
+launchctl unload ~/Library/LaunchAgents/com.fishtty.agent.plist  # 停止
+launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist    # 启动
+```
+
+> 💡 macOS 下 launchd 的 `RunAtLoad` 已启用，重启后自动运行。
+
+#### 直接运行（调试）
 
 ```bash
 ./bin/fishtty-agent \
-  --server https://your-server.example.com \
+  --server http://your-server:8001 \
   --token my-device-token
+
 # 或使用配置文件
-./bin/fishtty-agent --config ./agent.yaml
+./bin/fishtty-agent --config ./fishtty-agent.yaml
 ```
 
 ### 4. 连接移动端

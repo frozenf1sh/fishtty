@@ -100,9 +100,67 @@ run-server:
 run-agent:
 	go run ./cmd/agent/ --server http://localhost:8080 --token dev-token --device-id test-pc --log-level debug
 
+# ── Agent 部署包打包 ──
+# 每个部署包包含: 二进制 + 配置文件模板 + 守护进程文件 + 安装脚本
+
+DEPLOY_DIR = deploy
+AGENT_CONFIG = $(DEPLOY_DIR)/templates/fishtty-agent.yaml
+LINUX_SERVICE = $(DEPLOY_DIR)/templates/fishtty-agent.service
+LINUX_INSTALL = $(DEPLOY_DIR)/templates/install-linux.sh
+DARWIN_PLIST = $(DEPLOY_DIR)/templates/com.fishtty.agent.plist
+DARWIN_INSTALL = $(DEPLOY_DIR)/templates/install-darwin.sh
+
+# Linux amd64 部署包
+deploy-agent-linux-amd64: build-agent-linux-amd64
+	@rm -rf $(DEPLOY_DIR)/linux-amd64
+	@mkdir -p $(DEPLOY_DIR)/linux-amd64
+	cp bin/fishtty-agent-linux-amd64 $(DEPLOY_DIR)/linux-amd64/fishtty-agent
+	cp $(AGENT_CONFIG) $(DEPLOY_DIR)/linux-amd64/fishtty-agent.yaml
+	cp $(LINUX_SERVICE) $(DEPLOY_DIR)/linux-amd64/fishtty-agent.service
+	cp $(LINUX_INSTALL) $(DEPLOY_DIR)/linux-amd64/install.sh
+	chmod +x $(DEPLOY_DIR)/linux-amd64/install.sh $(DEPLOY_DIR)/linux-amd64/fishtty-agent
+	@echo "✅ Linux/amd64 部署包: $(DEPLOY_DIR)/linux-amd64/"
+
+# Linux arm64 部署包
+deploy-agent-linux-arm64: build-agent-linux-arm64
+	@rm -rf $(DEPLOY_DIR)/linux-arm64
+	@mkdir -p $(DEPLOY_DIR)/linux-arm64
+	cp bin/fishtty-agent-linux-arm64 $(DEPLOY_DIR)/linux-arm64/fishtty-agent
+	cp $(AGENT_CONFIG) $(DEPLOY_DIR)/linux-arm64/fishtty-agent.yaml
+	cp $(LINUX_SERVICE) $(DEPLOY_DIR)/linux-arm64/fishtty-agent.service
+	cp $(LINUX_INSTALL) $(DEPLOY_DIR)/linux-arm64/install.sh
+	chmod +x $(DEPLOY_DIR)/linux-arm64/install.sh $(DEPLOY_DIR)/linux-arm64/fishtty-agent
+	@echo "✅ Linux/arm64 部署包: $(DEPLOY_DIR)/linux-arm64/"
+
+# macOS arm64 部署包
+deploy-agent-darwin-arm64: build-agent-darwin-arm64
+	@rm -rf $(DEPLOY_DIR)/darwin-arm64
+	@mkdir -p $(DEPLOY_DIR)/darwin-arm64
+	cp bin/fishtty-agent-darwin-arm64 $(DEPLOY_DIR)/darwin-arm64/fishtty-agent
+	cp $(AGENT_CONFIG) $(DEPLOY_DIR)/darwin-arm64/fishtty-agent.yaml
+	cp $(DARWIN_PLIST) $(DEPLOY_DIR)/darwin-arm64/com.fishtty.agent.plist
+	cp $(DARWIN_INSTALL) $(DEPLOY_DIR)/darwin-arm64/install.sh
+	chmod +x $(DEPLOY_DIR)/darwin-arm64/install.sh $(DEPLOY_DIR)/darwin-arm64/fishtty-agent
+	@echo "✅ macOS/arm64 部署包: $(DEPLOY_DIR)/darwin-arm64/"
+
+# 全平台部署包
+deploy-agent-all: deploy-agent-linux-amd64 deploy-agent-linux-arm64 deploy-agent-darwin-arm64
+	@echo ""
+	@echo "=== 全平台部署包已生成 ==="
+	@echo ""
+	@echo "  Linux (amd64):     $(DEPLOY_DIR)/linux-amd64/"
+	@echo "  Linux (arm64):     $(DEPLOY_DIR)/linux-arm64/"
+	@echo "  macOS (arm64):     $(DEPLOY_DIR)/darwin-arm64/"
+	@echo ""
+	@echo "每个目录内含: 二进制 + 配置文件模板 + 守护进程文件 + install.sh"
+	@echo "部署流程见 README.md"
+
 # ── 清理 ──
 
 clean:
 	rm -rf bin/
 	rm -rf web/dist/
+	rm -rf $(DEPLOY_DIR)/linux-amd64/
+	rm -rf $(DEPLOY_DIR)/linux-arm64/
+	rm -rf $(DEPLOY_DIR)/darwin-arm64/
 	@echo "✅ 已清理"
