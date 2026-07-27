@@ -136,19 +136,31 @@ const (
 	ErrorCode_ERROR_CODE_INVALID_MESSAGE       ErrorCode = 5
 	ErrorCode_ERROR_CODE_INTERNAL_ERROR        ErrorCode = 6
 	ErrorCode_ERROR_CODE_UNAUTHORIZED          ErrorCode = 7
+	// 会话已被销毁或过期（Agent 端不存在该 session）。
+	ErrorCode_ERROR_CODE_SESSION_LOST ErrorCode = 8
+	// 目标 Agent 不在线，无法路由消息。
+	ErrorCode_ERROR_CODE_AGENT_UNREACHABLE ErrorCode = 9
+	// 中继层通道已满，消息被丢弃。
+	ErrorCode_ERROR_CODE_CHANNEL_FULL ErrorCode = 10
+	// 连接建立超时（WebSocket 或 Connect-RPC 握手超时）。
+	ErrorCode_ERROR_CODE_CONNECTION_TIMEOUT ErrorCode = 11
 )
 
 // Enum value maps for ErrorCode.
 var (
 	ErrorCode_name = map[int32]string{
-		0: "ERROR_CODE_UNSPECIFIED",
-		1: "ERROR_CODE_SESSION_NOT_FOUND",
-		2: "ERROR_CODE_COMMAND_NOT_FOUND",
-		3: "ERROR_CODE_COMMAND_FAILED",
-		4: "ERROR_CODE_SESSION_LIMIT_REACHED",
-		5: "ERROR_CODE_INVALID_MESSAGE",
-		6: "ERROR_CODE_INTERNAL_ERROR",
-		7: "ERROR_CODE_UNAUTHORIZED",
+		0:  "ERROR_CODE_UNSPECIFIED",
+		1:  "ERROR_CODE_SESSION_NOT_FOUND",
+		2:  "ERROR_CODE_COMMAND_NOT_FOUND",
+		3:  "ERROR_CODE_COMMAND_FAILED",
+		4:  "ERROR_CODE_SESSION_LIMIT_REACHED",
+		5:  "ERROR_CODE_INVALID_MESSAGE",
+		6:  "ERROR_CODE_INTERNAL_ERROR",
+		7:  "ERROR_CODE_UNAUTHORIZED",
+		8:  "ERROR_CODE_SESSION_LOST",
+		9:  "ERROR_CODE_AGENT_UNREACHABLE",
+		10: "ERROR_CODE_CHANNEL_FULL",
+		11: "ERROR_CODE_CONNECTION_TIMEOUT",
 	}
 	ErrorCode_value = map[string]int32{
 		"ERROR_CODE_UNSPECIFIED":           0,
@@ -159,6 +171,10 @@ var (
 		"ERROR_CODE_INVALID_MESSAGE":       5,
 		"ERROR_CODE_INTERNAL_ERROR":        6,
 		"ERROR_CODE_UNAUTHORIZED":          7,
+		"ERROR_CODE_SESSION_LOST":          8,
+		"ERROR_CODE_AGENT_UNREACHABLE":     9,
+		"ERROR_CODE_CHANNEL_FULL":          10,
+		"ERROR_CODE_CONNECTION_TIMEOUT":    11,
 	}
 )
 
@@ -1353,7 +1369,7 @@ const file_fishtty_v1_tunnel_proto_rawDesc = "" +
 	"\rSessionStatus\x12\x1e\n" +
 	"\x1aSESSION_STATUS_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11SESSION_STATUS_OK\x10\x01\x12\x19\n" +
-	"\x15SESSION_STATUS_FAILED\x10\x02*\x8c\x02\n" +
+	"\x15SESSION_STATUS_FAILED\x10\x02*\x8b\x03\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cERROR_CODE_SESSION_NOT_FOUND\x10\x01\x12 \n" +
@@ -1362,7 +1378,12 @@ const file_fishtty_v1_tunnel_proto_rawDesc = "" +
 	" ERROR_CODE_SESSION_LIMIT_REACHED\x10\x04\x12\x1e\n" +
 	"\x1aERROR_CODE_INVALID_MESSAGE\x10\x05\x12\x1d\n" +
 	"\x19ERROR_CODE_INTERNAL_ERROR\x10\x06\x12\x1b\n" +
-	"\x17ERROR_CODE_UNAUTHORIZED\x10\a2M\n" +
+	"\x17ERROR_CODE_UNAUTHORIZED\x10\a\x12\x1b\n" +
+	"\x17ERROR_CODE_SESSION_LOST\x10\b\x12 \n" +
+	"\x1cERROR_CODE_AGENT_UNREACHABLE\x10\t\x12\x1b\n" +
+	"\x17ERROR_CODE_CHANNEL_FULL\x10\n" +
+	"\x12!\n" +
+	"\x1dERROR_CODE_CONNECTION_TIMEOUT\x10\v2M\n" +
 	"\aFishTTY\x12B\n" +
 	"\x06Tunnel\x12\x19.fishtty.v1.TunnelMessage\x1a\x19.fishtty.v1.TunnelMessage(\x010\x01B\x9e\x01\n" +
 	"\x0ecom.fishtty.v1B\vTunnelProtoP\x01Z6github.com/frozenf1sh/fishpts/gen/fishtty/v1;fishttyv1\xa2\x02\x03FXX\xaa\x02\n" +

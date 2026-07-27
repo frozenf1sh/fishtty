@@ -89,6 +89,10 @@ func (h *Handler) Tunnel(ctx context.Context, stream *connect.BidiStream[fishtty
 			h.devices.UpdateHeartbeat(deviceID)
 			continue
 		}
+		// Session 销毁时清理 Server 端 ownership 映射，防止泄漏
+		if _, ok := msg.Payload.(*fishttyv1.TunnelMessage_SessionDestroyed); ok {
+			h.relay.CleanSession(msg.SessionId)
+		}
 		h.relay.RouteFromAgent(deviceID, msg)
 	}
 }

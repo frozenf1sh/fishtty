@@ -105,8 +105,28 @@ func (r *Relay) RouteFromAgent(deviceID string, msg *fishttyv1.TunnelMessage) {
 	r.mu.RUnlock()
 	for _, cid := range connIDs {
 		r.mu.RLock(); s, ok := r.mobiles[cid]; r.mu.RUnlock()
-		if ok { s.SendMessage(msg) }
+		if ok {
+			if err := s.SendMessage(msg); err != nil {
+				r.logger.Warn("Mobile 通道已满，向 Agent 回传背压", "conn_id", cid, "sid", sid)
+			}
+		}
 	}
+}
+
+// sendMobileError 向指定 Mobile 连接发送错误消息。
+func (r *Relay) sendMobileError(connID, sid string, code fishttyv1.ErrorCode, message string) {
+	r.mu.RLock(); s, ok := r.mobiles[connID]; r.mu.RUnlock()
+	if !ok { return }
+	_ = s.SendMessage(&fishttyv1.TunnelMessage{
+		SessionId: sid,
+		Payload: &fishttyv1.TunnelMessage_ErrorMsg{
+			ErrorMsg: &fishttyv1.ErrorMsg{
+				SessionId: sid,
+				Code:      code,
+				Message:   message,
+			},
+		},
+	})
 }
 
 func (r *Relay) RouteFromMobile(connID string, msg *fishttyv1.TunnelMessage) {
@@ -123,10 +143,22 @@ func (r *Relay) RouteFromMobile(connID string, msg *fishttyv1.TunnelMessage) {
 		case ch <- msg:
 		default:
 			r.logger.Warn("⚠️ Agent 通道已满，消息被丢弃", "sid", sid, "did", did)
+			// 背压通知：向消息源端（Mobile）发送拥塞错误
+			r.sendMobileError(connID, sid, fishttyv1.ErrorCode_ERROR_CODE_CHANNEL_FULL, "中继通道拥塞，消息已丢弃")
 		}
 	} else {
 		r.logger.Warn("无法路由消息到 Agent", "sid", sid, "did", did, "agent_exists", ok)
+		// Agent 不在线时主动通知 Mobile 端
+		r.sendMobileError(connID, sid, fishttyv1.ErrorCode_ERROR_CODE_AGENT_UNREACHABLE, "目标设备不在线")
 	}
+}
+
+// CleanSession 清理指定会话的 ownership 映射。
+// 在 Session 被销毁时调用（非 Agent 断开），防止 sessionOwners 泄漏。
+func (r *Relay) CleanSession(sid string) {
+	r.mu.Lock(); defer r.mu.Unlock()
+	delete(r.sessionOwners, sid)
+	delete(r.pendingInits, sid)
 }
 
 func (r *Relay) AgentCount() int     { r.mu.RLock(); defer r.mu.RUnlock(); return len(r.agents) }
