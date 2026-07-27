@@ -259,19 +259,21 @@ body {
   display: flex;
   justify-content: center;
   gap: 4px;
-  padding: 6px 6px calc(6px + var(--safe-bottom));
+  padding: 6px 6px calc(6px + max(var(--safe-bottom), var(--keyboard-height, 0px)));
   background: var(--bg-light);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   -webkit-user-select: none;
   user-select: none;
+  transition: padding-bottom 0.15s ease-out;
 }
 
 .vk-btn {
-  min-width: 36px;
+  flex: 1;
+  min-width: 0;
   height: 40px;
-  padding: 4px 10px;
+  padding: 4px 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-lighter);
@@ -285,6 +287,9 @@ body {
   justify-content: center;
   transition: background 0.05s;
   -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .vk-btn--active {
@@ -373,14 +378,17 @@ body {
 
 @media (min-width: 768px) {
   .virtual-keyboard {
-    padding: 8px 12px;
+    padding: 8px 12px calc(8px + max(var(--safe-bottom), var(--keyboard-height, 0px)));
     gap: 8px;
+    /* 桌面端不限缩 */
   }
 
   .vk-btn {
+    flex: 0 1 auto;
     min-width: 48px;
     height: 44px;
     font-size: 16px;
+    padding: 4px 14px;
   }
 
   .terminal-header {

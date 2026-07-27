@@ -119,24 +119,13 @@ function KeyButton({
     clearTimers();
   }, [clearTimers]);
 
-  // 阻止默认行为（避免双击缩放等）
-  const handleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      e.preventDefault();
-      handleDown();
-    },
-    [handleDown]
-  );
-
   return (
     <button
       className={`vk-btn ${pressing ? 'vk-btn--active' : ''} ${mapping.key === '__paste__' ? 'vk-btn--paste' : ''}`}
-      onMouseDown={handleDown}
-      onMouseUp={handleUp}
-      onMouseLeave={handleUp}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleUp}
-      onTouchCancel={handleUp}
+      onPointerDown={handleDown}
+      onPointerUp={handleUp}
+      onPointerLeave={handleUp}
+      onPointerCancel={handleUp}
       aria-label={mapping.label}
       title={mapping.label}
     >

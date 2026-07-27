@@ -3,6 +3,7 @@
  *
  * 包含：设备列表页 → 终端会话页，
  * Session 选项卡切换、断线重连遮罩、错误 Toast。
+ * 集成移动端键盘适配与本地回显优化。
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -10,18 +11,16 @@ import type { TunnelMessage } from '@/gen/fishtty/v1/tunnel_pb';
 import { FishTTYClient, type WsState } from '@/ws/client';
 import { SessionProvider, useSession } from '@/sessions/SessionProvider';
 import TerminalView from '@/terminal/Terminal';
+import type { TerminalHandle } from '@/terminal/Terminal';
 import VirtualKeyboard from '@/terminal/VirtualKeyboard';
-import type { Terminal as XTerm } from '@xterm/xterm';
 
 // ── 常量 ──
 
-/** 默认 Server 地址：始终与 PWA 加载来源一致，避免 localhost/端口 不匹配 */
+/** 默认 Server 地址：始终与 PWA 加载来源一致 */
 const DEFAULT_SERVER = (() => {
   try { return window.location.origin; } catch { return 'http://localhost:8080'; }
 })();
-/** localStorage 中存储 Server 地址的 key */
 const LS_SERVER_KEY = 'fishtty_server';
-/** localStorage 中存储 deviceId 的 key */
 const LS_DEVICE_ID_KEY = 'fishtty_device_id';
 
 // ── App 入口 ──
@@ -47,8 +46,28 @@ function AppShell() {
   const [wsState, setWsState] = useState<WsState>('WS_DISCONNECTED');
   const [errors, setErrors] = useState<string[]>([]);
   const clientRef = useRef<FishTTYClient | null>(null);
-  const termRefs = useRef<Map<string, XTerm>>(new Map());
+  const handleRefs = useRef<Map<string, TerminalHandle>>(new Map());
   const { sessions, activeSessionId, createSession, removeSession, switchSession } = useSession();
+
+  // ── 移动端键盘适配 ──
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const updateKeyboard = () => {
+      const keyboardH = window.innerHeight - vv.height;
+      document.documentElement.style.setProperty(
+        '--keyboard-height', `${Math.max(0, keyboardH)}px`
+      );
+    };
+
+    vv.addEventListener('resize', updateKeyboard);
+    vv.addEventListener('scroll', updateKeyboard);
+    return () => {
+      vv.removeEventListener('resize', updateKeyboard);
+      vv.removeEventListener('scroll', updateKeyboard);
+    };
+  }, []);
 
   // ── 连接 ──
   const connect = useCallback(
@@ -85,9 +104,15 @@ function AppShell() {
       switch (msg.payload.case) {
         case 'dataChunk': {
           const chunk = msg.payload.value;
-          const term = termRefs.current.get(sid);
-          if (term && chunk.data) {
-            term.write(chunk.data);
+          if (!chunk.data) break;
+
+          const handle = handleRefs.current.get(sid);
+          if (handle) {
+            // 通过本地回显缓冲区过滤服务端回显重叠
+            const writeData = handle.drainEcho(chunk.data);
+            if (writeData.length > 0) {
+              handle.term.write(writeData);
+            }
           }
           break;
         }
@@ -102,10 +127,10 @@ function AppShell() {
 
         case 'reattachData': {
           const reattach = msg.payload.value;
-          const term = termRefs.current.get(sid);
-          if (term && reattach.chunks) {
+          const handle = handleRefs.current.get(sid);
+          if (handle && reattach.chunks) {
             reattach.chunks.forEach((chunk) => {
-              if (chunk.data) term.write(chunk.data);
+              if (chunk.data) handle.term.write(chunk.data);
             });
           }
           break;
@@ -118,7 +143,6 @@ function AppShell() {
         }
 
         default:
-          // 其他消息（心跳 ACK 等）忽略
           break;
       }
     },
@@ -160,7 +184,7 @@ function AppShell() {
       if (clientRef.current) {
         clientRef.current.destroySession(sid);
       }
-      termRefs.current.delete(sid);
+      handleRefs.current.delete(sid);
       removeSession(sid);
     },
     [removeSession]
@@ -266,7 +290,9 @@ function AppShell() {
             sessionId={s.sessionId}
             client={clientRef.current!}
             visible={s.sessionId === activeSessionId}
-	            onTermReady={(term) => { termRefs.current.set(s.sessionId, term); }}
+            onTermReady={(handle) => {
+              handleRefs.current.set(s.sessionId, handle);
+            }}
           />
         ))}
       </div>

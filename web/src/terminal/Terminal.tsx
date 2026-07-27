@@ -3,6 +3,7 @@
  *
  * 集成 WebGL 渲染加速、自适应尺寸（Fit）、
  * 50ms Resize 节流，以及物理键盘控制字符映射。
+ * 实现本地回显（Local Echo）以降低远程连接延迟体感。
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -11,6 +12,66 @@ import { FitAddon } from '@xterm/addon-fit';
 import { matchKeyEvent } from './keymap';
 import type { FishTTYClient } from '@/ws/client';
 import '@xterm/xterm/css/xterm.css';
+
+// ── Local Echo 状态 ──
+
+/** 本地回显缓冲区：记录已在前端渲染但尚未被服务端输出覆盖的字符 */
+class EchoBuffer {
+  private pending = '';
+  private decoder = new TextDecoder();
+  private encoder = new TextEncoder();
+
+  /** 将用户输入写入终端并记录到待匹配队列 */
+  writeLocal(term: XTerm, data: string): void {
+    term.write(data);
+    this.pending += data;
+    // 防止内存无限增长
+    if (this.pending.length > 1024) {
+      this.pending = this.pending.slice(-512);
+    }
+  }
+
+  /**
+   * 消费服务端返回的数据，去除与本地回显重复的前缀。
+   * 返回去除前缀后应写入终端的字节。
+   */
+  drain(serverData: Uint8Array): Uint8Array {
+    if (this.pending.length === 0) return serverData;
+
+    const serverStr = this.decoder.decode(serverData);
+    let matchLen = 0;
+    const maxLen = Math.min(this.pending.length, serverStr.length);
+
+    while (matchLen < maxLen && this.pending[matchLen] === serverStr[matchLen]) {
+      matchLen++;
+    }
+
+    if (matchLen > 0) {
+      this.pending = this.pending.slice(matchLen);
+    } else {
+      // 不匹配（如 Tab 补全、Ctrl-C 等）：清空待匹配区
+      this.pending = '';
+    }
+
+    if (matchLen >= serverStr.length) {
+      return new Uint8Array(0);
+    }
+    return serverData.slice(matchLen);
+  }
+
+  /** 清空待匹配区（用于 Ctrl-C、Enter 等不可预测场景） */
+  clear(): void {
+    this.pending = '';
+  }
+}
+
+// ── 对外暴露的句柄 ──
+
+export interface TerminalHandle {
+  term: XTerm;
+  /** 消费服务端数据，去除本地回显重复前缀 */
+  drainEcho: (data: Uint8Array) => Uint8Array;
+}
 
 // ── Props ──
 
@@ -21,8 +82,8 @@ interface TerminalProps {
   client: FishTTYClient;
   /** 是否可见（不可见时不渲染以节省资源） */
   visible: boolean;
-  /** xterm 实例就绪时的回调，用于外部写入终端输出 */
-  onTermReady?: (term: XTerm) => void;
+  /** xterm 实例 + echo drainer 就绪时的回调 */
+  onTermReady?: (handle: TerminalHandle) => void;
 }
 
 // ── 终端主题 ──
@@ -34,7 +95,6 @@ const TERMINAL_THEME = {
   cursorAccent: '#1e1e1e',
   selectionBackground: '#264f78',
   selectionForeground: '#ffffff',
-  // 16 色 ANSI 调色板
   black: '#000000',
   red: '#cd3131',
   green: '#0dbc79',
@@ -62,6 +122,7 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const columnsRef = useRef(80);
   const rowsRef = useRef(24);
+  const echoRef = useRef<EchoBuffer>(new EchoBuffer());
 
   // ── 初始化 xterm.js ──
   useEffect(() => {
@@ -76,21 +137,16 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
       cursorBlink: true,
       cursorStyle: 'bar',
       allowProposedApi: true,
-      // 不禁用 stdin — onData 回调负责将所有输入通过 WebSocket 发送到 PTY
       scrollback: 10000,
       cols: 80,
       rows: 24,
-      // 改善复杂 prompt/补全插件渲染
-      smoothScrollDuration: 0,          // 禁用平滑滚动，避免滚动残影
-      drawBoldTextInBrightColors: false, // bold 文本不变色，避免 prompt 颜色错乱
+      smoothScrollDuration: 0,
+      drawBoldTextInBrightColors: false,
       fastScrollSensitivity: 5,
       minimumContrastRatio: 1,
       wordSeparator: ' ()[]{}\'"`',
     });
 
-    // 使用 DOM 渲染器（兼容性最好，WebGL 在部分环境有渲染问题）
-
-    // Fit 自适应尺寸
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     fitAddonRef.current = fitAddon;
@@ -99,9 +155,13 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
     termRef.current = term;
 
     // 通知父组件 xterm 已就绪
-    if (onTermReady) onTermReady(term);
+    if (onTermReady) {
+      onTermReady({
+        term,
+        drainEcho: (data: Uint8Array) => echoRef.current.drain(data),
+      });
+    }
 
-    // 打开后立即 fit
     setTimeout(() => {
       fitAddon.fit();
       columnsRef.current = term.cols;
@@ -142,14 +202,12 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
     };
 
     const handleOrientation = () => {
-      // 旋转后延迟 fit（等布局完成）
       setTimeout(handleResize, 100);
     };
 
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleOrientation);
 
-    // 使用 ResizeObserver 监听容器变化（键盘弹起/收起）
     const container = containerRef.current;
     let observer: ResizeObserver | null = null;
     if (container) {
@@ -172,8 +230,9 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
     const term = termRef.current;
     if (!term) return;
 
+    const echo = echoRef.current;
+
     const handleKey = (e: KeyboardEvent) => {
-      // 不拦截输入框中的按键
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement
@@ -184,13 +243,17 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
       const mapping = matchKeyEvent(e);
       if (mapping) {
         e.preventDefault();
+        // 控制键清空 echo 缓冲区
+        echo.clear();
         client.sendData(sessionId, mapping.bytes);
       }
     };
 
     // xterm.js 内部的按键事件（处理普通字符输入）
+    // 实现本地回显：立刻在终端显示，同时发送到服务器
     const handleTermData = (data: string) => {
       const encoder = new TextEncoder();
+      echo.writeLocal(term, data);
       client.sendData(sessionId, encoder.encode(data));
     };
 
@@ -201,10 +264,6 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
       document.removeEventListener('keydown', handleKey);
     };
   }, [client, sessionId]);
-
-  // ── 暴露 write 方法给外部 ──
-  // 通过自定义事件或 ref，让外部能写入数据到终端
-  // 这里使用 window 自定义事件
 
   // ── 渲染 ──
   return (
@@ -221,7 +280,7 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
   );
 }
 
-// ── 导出工具方法：写入数据到终端 ──
+// ── 导出工具方法 ──
 
 /** 向 xterm.js 实例写入终端输出 */
 export function writeToTerminal(term: XTerm | null, data: Uint8Array): void {
