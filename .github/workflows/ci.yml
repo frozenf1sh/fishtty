@@ -170,8 +170,8 @@ jobs:
       - name: 创建 Release 并上传
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }} — ${{ github.sha }}
-          tag_name: ${{ github.sha }}
+          name: main — ${{ github.sha }}
+          tag_name: build-${{ github.run_number }}-${{ github.run_attempt }}
           files: |
             fishtty-agent-linux-amd64.tar.gz
             fishtty-agent-linux-arm64.tar.gz
