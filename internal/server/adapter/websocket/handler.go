@@ -23,7 +23,7 @@ const (
 
 var (
 	upgrader = websocket.Upgrader{
-		ReadBufferSize: 4096, WriteBufferSize: 4096,
+		ReadBufferSize: 65536, WriteBufferSize: 65536,
 		CheckOrigin:  func(r *http.Request) bool { return true },
 		Subprotocols: []string{subProtocol}, EnableCompression: true,
 	}
@@ -81,14 +81,44 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// 读循环
+	// 读循环：按消息类型分发
 	for {
 		mt, data, err := conn.ReadMessage()
-		if err != nil { break }
-		if mt != websocket.BinaryMessage { continue }
-		var msg fishttyv1.TunnelMessage
-		if err := proto.Unmarshal(data, &msg); err != nil { logger.Warn("反序列化失败", "error", err); continue }
-		h.relay.RouteFromMobile(connID, &msg)
+		if err != nil {
+			// 区分关闭原因以提供可操作的日志
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+				logger.Info("客户端正常关闭连接")
+			} else if websocket.IsCloseError(err, websocket.CloseGoingAway) {
+				logger.Info("客户端离开（页面关闭或导航跳转）")
+			} else if websocket.IsUnexpectedCloseError(err) {
+				logger.Warn("WebSocket 异常关闭", "error", err)
+			} else {
+				logger.Warn("WebSocket 读取错误", "error", err)
+			}
+			break
+		}
+
+		switch mt {
+		case websocket.TextMessage:
+			// 应用层 Ping/Pong 心跳检测
+			if string(data) == "ping" {
+				if err := conn.WriteMessage(websocket.TextMessage, []byte("pong")); err != nil {
+					logger.Warn("发送 pong 失败", "error", err)
+				}
+			}
+			continue
+
+		case websocket.BinaryMessage:
+			var msg fishttyv1.TunnelMessage
+			if err := proto.Unmarshal(data, &msg); err != nil {
+				logger.Warn("反序列化失败", "error", err)
+				continue
+			}
+			h.relay.RouteFromMobile(connID, &msg)
+
+		default:
+			continue
+		}
 	}
 	conn.Close()
 	logger.Info("Mobile WebSocket 已断开")

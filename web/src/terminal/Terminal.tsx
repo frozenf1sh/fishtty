@@ -19,7 +19,6 @@ import '@xterm/xterm/css/xterm.css';
 class EchoBuffer {
   private pending = '';
   private decoder = new TextDecoder();
-  private encoder = new TextEncoder();
 
   /** 将用户输入写入终端并记录到待匹配队列 */
   writeLocal(term: XTerm, data: string): void {

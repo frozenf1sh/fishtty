@@ -337,9 +337,9 @@ body {
   font-size: 14px;
 }
 
-/* ── 错误 Toast ── */
+/* ── 分级 Toast ── */
 
-.error-toast-container {
+.toast-container {
   position: fixed;
   top: 12px;
   left: 12px;
@@ -351,9 +351,11 @@ body {
   pointer-events: none;
 }
 
-.error-toast {
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   padding: 10px 14px;
-  background: var(--danger);
   color: #fff;
   border-radius: var(--radius);
   font-size: 13px;
@@ -361,6 +363,36 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   animation: toastIn 0.3s ease-out;
   pointer-events: auto;
+}
+
+.toast--error {
+  background: var(--danger); /* #cd3131 — 红色 */
+}
+
+.toast--warning {
+  background: #d4810b; /* 琥珀色 */
+}
+
+.toast--info {
+  background: var(--blue); /* #2472c8 — 蓝色 */
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 @keyframes toastIn {
