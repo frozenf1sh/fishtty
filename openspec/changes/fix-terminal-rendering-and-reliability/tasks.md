@@ -16,23 +16,23 @@
 
 ## 3. 终端渲染 — WebGL & Unicode
 
-- [ ] 3.1 安装依赖：`pnpm -C web add @xterm/addon-unicode11 @xterm/addon-canvas`
-- [ ] 3.2 在 `Terminal.tsx` 中按优先级加载 addons：FitAddon → try WebglAddon → catch CanvasAddon → Unicode11Addon
-- [ ] 3.3 实现 WebGL context loss 回退：监听 `webglAddon.onContextLoss()`，触发时替换为 CanvasAddon
-- [ ] 3.4 在 `Terminal.tsx` 中使用 `term.parser.registerCsiHandler` 检测交替缓冲区切换（`\x1b[?1049h` / `\x1b[?1049l`）
+- [x] 3.1 安装依赖：`pnpm -C web add @xterm/addon-unicode11 @xterm/addon-canvas`
+- [x] 3.2 在 `Terminal.tsx` 中按优先级加载 addons：FitAddon → try WebglAddon → catch CanvasAddon → Unicode11Addon
+- [x] 3.3 实现 WebGL context loss 回退：监听 `webglAddon.onContextLoss()`，触发时替换为 CanvasAddon
+- [x] 3.4 在 `Terminal.tsx` 中使用 `term.parser.registerCsiHandler` 检测交替缓冲区切换（`\x1b[?1049h` / `\x1b[?1049l`）
 
 ## 4. 本地回显 — 交替缓冲区感知
 
-- [ ] 4.1 在 `EchoBuffer` 中新增 `inAltBuffer` 状态标记
-- [ ] 4.2 交替缓冲区进入时：清空 `pending` 缓冲区，设置 `inAltBuffer = true`
-- [ ] 4.3 交替缓冲区退出时：设置 `inAltBuffer = false`，恢复正常回显匹配
-- [ ] 4.4 在交替缓冲区内：`writeLocal` 不写入终端（vim 的响应不是简单字符回显），`drain` 直接透传服务端数据（不做前缀匹配）
+- [x] 4.1 在 `EchoBuffer` 中新增 `inAltBuffer` 状态标记
+- [x] 4.2 交替缓冲区进入时：清空 `pending` 缓冲区，设置 `inAltBuffer = true`
+- [x] 4.3 交替缓冲区退出时：设置 `inAltBuffer = false`，恢复正常回显匹配
+- [x] 4.4 在交替缓冲区内：`writeLocal` 不写入终端（vim 的响应不是简单字符回显），`drain` 直接透传服务端数据（不做前缀匹配）
 
 ## 5. 输入延迟 — rAF 批量发送
 
-- [ ] 5.1 在 `Terminal.tsx` 的 `term.onData` 中实现 rAF 合并：累积输入到 `pendingInput` 数组，首个字符触发 `requestAnimationFrame(flush)`
-- [ ] 5.2 `flush` 函数：合并 `pendingInput` 中所有 Uint8Array 为单个 DataChunk，调用 `client.sendData()`，清空数组
-- [ ] 5.3 确保 `echo.writeLocal` 仍在每个字符到达时立即调用（本地回显不延迟）
+- [x] 5.1 在 `Terminal.tsx` 的 `term.onData` 中实现 rAF 合并：累积输入到 `pendingInput` 数组，首个字符触发 `requestAnimationFrame(flush)`
+- [x] 5.2 `flush` 函数：合并 `pendingInput` 中所有 Uint8Array 为单个 DataChunk，调用 `client.sendData()`，清空数组
+- [x] 5.3 确保 `echo.writeLocal` 仍在每个字符到达时立即调用（本地回显不延迟）
 
 ## 6. 连接韧性 — Ping/Pong & 重连
 
