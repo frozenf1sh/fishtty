@@ -229,6 +229,10 @@ enum ErrorCode {
   ERROR_CODE_INVALID_MESSAGE = 5;
   ERROR_CODE_INTERNAL_ERROR = 6;
   ERROR_CODE_UNAUTHORIZED = 7;
+  ERROR_CODE_SESSION_LOST = 8;         // session 已被销毁/过期
+  ERROR_CODE_AGENT_UNREACHABLE = 9;    // 目标 Agent 不在线
+  ERROR_CODE_CHANNEL_FULL = 10;        // 中继通道拥塞
+  ERROR_CODE_CONNECTION_TIMEOUT = 11;  // 连接超时
 }
 ```
 
@@ -308,6 +312,23 @@ enum ErrorCode {
 
 On `WS_RECONNECTING → WS_ACTIVE` transition: for each active session, send `Reattach{session_id, last_ack_seq}`, process `ReattachData` response, then resume live `DataChunk` handling.
 
+## WebSocket 应用层 Ping/Pong
+
+Mobile 客户端与 Server 之间通过 WebSocket 文本帧进行应用层心跳检测：
+
+- 客户端每 30 秒发送文本帧 `"ping"`
+- 服务端立即回复文本帧 `"pong"`
+- 这些文本帧不经过 protobuf 序列化，不进入 relay
+- 客户端 10 秒未收到 pong → 视为连接断开 → 触发重连
+
+## Mobile Client State Machine Extensions
+
+Mobile WebSocket 状态机新增以下转换规则：
+
+- **连接超时**: WS_CONNECTING 超过 10s → WS_RECONNECTING + 显示超时 Toast
+- **Pong 超时**: WS_ACTIVE 中 10s 未收到 pong → 主动关闭 → WS_RECONNECTING
+- **重连风暴保护**: 60s 内 >5 次 WS_RECONNECTING → WS_CONNECTING 转换 → 退避上限提升至 30s + 持久错误提示
+
 ## Wire Format Details
 
 ### Agent ↔ Server (Connect-RPC)
@@ -369,6 +390,11 @@ Rules:
 |---------------|-------------|---------------|---------------|
 | Invalid message (deserialization failure) | Log warning, skip message | Log warning, skip message | Log warning, skip message |
 | Session not found | Send `Error{code: SESSION_NOT_FOUND}` | Forward error to client | Show toast, remove session tab |
+| Session 已销毁（Reattach 到过期会话） | Send `Error{code: SESSION_LOST}` | Forward error to client | Show toast "会话已过期"，自动创建新 Session |
+| Agent 不在线（Mobile 发 SessionInit） | N/A | Send `Error{code: AGENT_UNREACHABLE}` directly | Show toast "设备不在线" |
+| Relay channel 满 | N/A | Send `Error{code: CHANNEL_FULL}` to source | Show toast "通道拥塞" |
+| WebSocket 连接超时 | N/A | Close connection with 1013 code | Show toast "连接超时"，触发重连 |
+| Session 销毁 | Send `SessionDestroyed`, signal relay to clean | Clean `sessionOwners` map entry | Remove session tab |
 | Agent stream broken | Enter RECONNECT | Clean up agent connection; buffer mobile messages (limited) | Show "Reconnecting..." overlay |
 | Mobile WebSocket broken | (Unaware — stream to Server continues) | Buffer or drop depending on session TTL | Show "Reconnecting...", attempt reattach |
 | Ring buffer overflow (seq gap) | Continue normally | Forward `ReattachData` with `start_seq > last_ack_seq+1` | Display gap indicator, continue from `start_seq` |

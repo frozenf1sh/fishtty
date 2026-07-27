@@ -180,7 +180,79 @@ Agent Connection
     └── mobileSendLoop: stream.Recv() → route to mobile → ws.WriteMessage()
 ```
 
+## Session Ownership Lifecycle
+
+Server 的 Stream Relay 维护 `sessionOwners` 映射以追踪活跃会话。该映射在以下时机更新：
+
+- **Session 创建**: `SessionCreated` 消息到达时建立 ownership
+- **Session 销毁**: `SessionDestroyed` 消息到达时调用 `CleanSession(sid)` 清理
+- **Agent 断开**: `UnregisterAgent` 时批量清理该设备的所有 session 条目
+
+```go
+// relay.go — CleanSession 清理指定会话的 ownership 映射
+func (r *Relay) CleanSession(sid string) {
+    r.mu.Lock(); defer r.mu.Unlock()
+    delete(r.sessionOwners, sid)
+    delete(r.pendingInits, sid)
+}
+```
+
+Server Relay 在以下场景主动向消息源端发送错误：
+- `RouteFromMobile` 找不到目标 Agent → 发送 `ErrorMsg{code: AGENT_UNREACHABLE}`
+- `channelSender.SendMessage` channel 满 → 发送 `ErrorMsg{code: CHANNEL_FULL}`
+
+## WebSocket 配置
+
+- **读写缓冲区**: 65536 字节（从 4096 提升），减少大帧输出时的分片和系统调用
+- **应用层 Ping/Pong**: 客户端每 30s 发送文本帧 "ping"，服务端立即回复 "pong"，不经过 protobuf 序列化
+- **关闭原因日志**: 区分正常关闭 (1000)、页面离开 (1001)、异常断开，记录对应级别的日志
+
+## Health Check 端点
+
+Server 提供 `/health` HTTP 端点，返回 JSON 格式的健康状态：
+
+```json
+{"status":"ok","agents":1,"mobiles":1,"sessions":1}
+```
+
+- Agent 全部离线时返回 503 和 `"status":"degraded"`
+- 响应时间 <10ms
+
+## Agent Heartbeat 配置
+
+Agent 的心跳检测支持通过配置文件调整参数：
+
+```yaml
+heartbeat:
+  interval: 15s        # 心跳发送间隔
+  miss_threshold: 3     # 连续未收到 ACK 的次数阈值（45s 超时）
+```
+
+## Web 前端渲染栈
+
+xterm.js 按以下优先级加载 addons：
+
+| 优先级 | Addon | 用途 |
+|--------|-------|------|
+| 1 | `@xterm/addon-fit` | 自适应容器尺寸 |
+| 2 | `@xterm/addon-webgl` | GPU 加速渲染（主渲染器） |
+| 3 | `@xterm/addon-canvas` | Canvas 回退（WebGL 不可用时） |
+| 4 | `@xterm/addon-unicode11` | Unicode 11 列宽修正 |
+
+WebGL context 丢失时自动降级到 Canvas。Unicode11 addon 修正 CJK/emoji 等宽字符的列宽计算。
+
+## Web 前端 WebSocket 客户端
+
+- 连接超时：10 秒无响应则报错并触发重连
+- 应用层心跳：30s ping/pong，10s pong 超时触发重连
+- 重连风暴保护：60s 内 >5 次断连 → 退避上限提升至 30s
+- 状态持久化：`deviceId` 和活跃 session 信息写入 localStorage
+- 自动恢复：重连后无 session 时自动创建新终端
+
 ## References
 
 - `openspec/specs/protocol.md` — Protobuf schema and connection state machine
+- `openspec/specs/terminal-rendering.md` — 终端渲染规格
+- `openspec/specs/error-feedback.md` — 错误反馈规格
+- `openspec/specs/connection-resilience.md` — 连接韧性规格
 - `openspec/changes/fishtty-architecture/design.md` — Detailed design decisions
