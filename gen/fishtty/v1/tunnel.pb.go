@@ -883,7 +883,10 @@ type DataChunk struct {
 	// Mobile→Server 方向（stdin）设为 0，不纳入序列追踪。
 	Seq uint64 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
 	// 原始终端字节（PTY 的 stdout，或写入 PTY 的 stdin）。
-	Data          []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	Data []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	// 本地回显序号。Mobile→Server 时携带，表示发送时刻的本地序号。
+	// Agent 回传时原样保留。0 表示未启用序号追踪（向后兼容）。
+	EchoSeq       uint32 `protobuf:"varint,4,opt,name=echo_seq,json=echoSeq,proto3" json:"echo_seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -937,6 +940,13 @@ func (x *DataChunk) GetData() []byte {
 		return x.Data
 	}
 	return nil
+}
+
+func (x *DataChunk) GetEchoSeq() uint32 {
+	if x != nil {
+		return x.EchoSeq
+	}
+	return 0
 }
 
 type Resize struct {
@@ -1329,12 +1339,13 @@ const file_fishtty_v1_tunnel_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\"1\n" +
 	"\x10SessionDestroyed\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\"P\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"k\n" +
 	"\tDataChunk\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x12\x12\n" +
-	"\x04data\x18\x03 \x01(\fR\x04data\"O\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\x12\x19\n" +
+	"\becho_seq\x18\x04 \x01(\rR\aechoSeq\"O\n" +
 	"\x06Resize\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +

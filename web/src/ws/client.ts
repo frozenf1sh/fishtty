@@ -164,16 +164,17 @@ export class FishTTYClient {
     return this.send(msg);
   }
 
-  /** 发送数据到 PTY（stdin） */
-  sendData(sessionId: string, data: Uint8Array): boolean {
+  /** 发送数据到 PTY（stdin）。echoSeq 为本地回显序号，0 表示不追踪。 */
+  sendData(sessionId: string, data: Uint8Array, echoSeq: number = 0): boolean {
     const msg = create(TunnelMessageSchema, {
       sessionId,
       payload: {
         case: 'dataChunk',
         value: create(DataChunkSchema, {
           sessionId,
-          seq: 0n, // Mobile→Server 方向 seq=0
+          seq: 0n,
           data,
+          echoSeq,
         }),
       },
     });

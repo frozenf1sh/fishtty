@@ -16,14 +16,15 @@ var _ domain.Session = (*session)(nil)
 // session 是 domain.Session 的具体实现。
 // 每个 session 拥有独立的 PTY、输出缓冲区、序号计数器和一个 readLoop goroutine。
 type session struct {
-	id      string
-	term    domain.TerminalEmulator
-	buf     domain.OutputBuffer
-	seq     uint64
-	sender  MessageSender
-	ctx     context.Context
-	cancel  context.CancelFunc
-	logger  *slog.Logger
+	id             string
+	term           domain.TerminalEmulator
+	buf            domain.OutputBuffer
+	seq            uint64
+	pendingEchoSeq uint32 // 待回传的本地回显序号（来自 Mobile stdin）
+	sender         MessageSender
+	ctx            context.Context
+	cancel         context.CancelFunc
+	logger         *slog.Logger
 }
 
 func newSession(id string, term domain.TerminalEmulator, buf domain.OutputBuffer, sender MessageSender, logger *slog.Logger) *session {
@@ -52,6 +53,16 @@ func (s *session) ReplayFrom(lastSeq uint64) *fishttyv1.ReattachData {
 	return &fishttyv1.ReattachData{SessionId: s.id, StartSeq: startSeq, Chunks: chunks}
 }
 
+// SetPendingEchoSeq 记录 Mobile 端的本地回显序号，供下一次 PTY 输出时回传。
+func (s *session) SetPendingEchoSeq(seq uint32) { s.pendingEchoSeq = seq }
+
+// GetAndClearPendingEchoSeq 取出并清空待回传的本地回显序号。
+func (s *session) GetAndClearPendingEchoSeq() uint32 {
+	v := s.pendingEchoSeq
+	s.pendingEchoSeq = 0
+	return v
+}
+
 func (s *session) Destroy() {
 	s.logger.Info("正在销毁 session")
 	s.cancel()
@@ -69,7 +80,7 @@ func (s *session) readLoop() {
 	}()
 	defer s.logger.Info("readLoop 退出")
 
-	buf := make([]byte, 4096)
+	buf := make([]byte, 32768)
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -88,7 +99,10 @@ func (s *session) readLoop() {
 
 			s.sender.SendMessage(&fishttyv1.TunnelMessage{
 				SessionId: s.id,
-				Payload:   &fishttyv1.TunnelMessage_DataChunk{DataChunk: &fishttyv1.DataChunk{Seq: seq, Data: data}},
+				Payload: &fishttyv1.TunnelMessage_DataChunk{DataChunk: &fishttyv1.DataChunk{
+					Seq: seq, Data: data,
+					EchoSeq: s.GetAndClearPendingEchoSeq(),
+				}},
 			})
 		}
 		if err != nil {
