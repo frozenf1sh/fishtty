@@ -31,6 +31,8 @@ services:
     volumes:
       - ./configs/fishtty-server.yaml:/etc/fishtty/fishtty-server.yaml:ro
     command: ["--config", "/etc/fishtty/fishtty-server.yaml", "--listen", ":8443"]
+    # 注：/health 端点可供外部监控（K8s probes、Caddy health_check 等）。
+    # 因 distroless 镜像不含 curl/wget，Docker Compose 内置 healthcheck 需另配。
 
 volumes:
   caddy_data:

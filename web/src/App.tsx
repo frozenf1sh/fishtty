@@ -2,12 +2,13 @@
  * fishtty PWA — App 根组件。
  *
  * 包含：设备列表页 → 终端会话页，
- * Session 选项卡切换、断线重连遮罩、错误 Toast。
- * 集成移动端键盘适配与本地回显优化。
+ * Session 选项卡切换、断线重连遮罩、分级错误 Toast。
+ * 集成移动端键盘适配、本地回显优化、自动会话恢复。
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { TunnelMessage } from '@/gen/fishtty/v1/tunnel_pb';
+import { ErrorCode } from '@/gen/fishtty/v1/tunnel_pb';
 import { FishTTYClient, type WsState } from '@/ws/client';
 import { SessionProvider, useSession } from '@/sessions/SessionProvider';
 import TerminalView from '@/terminal/Terminal';
@@ -22,6 +23,18 @@ const DEFAULT_SERVER = (() => {
 })();
 const LS_SERVER_KEY = 'fishtty_server';
 const LS_DEVICE_ID_KEY = 'fishtty_device_id';
+
+// ── Toast 类型 ──
+
+type ToastLevel = 'error' | 'warning' | 'info';
+
+interface Toast {
+  id: number;
+  message: string;
+  level: ToastLevel;
+}
+
+let toastIdCounter = 0;
 
 // ── App 入口 ──
 
@@ -41,10 +54,10 @@ function AppShell() {
     localStorage.getItem(LS_SERVER_KEY) || DEFAULT_SERVER
   );
   const [deviceId, setDeviceId] = useState(() =>
-    localStorage.getItem(LS_DEVICE_ID_KEY) || ''
+    localStorage.getItem(LS_DEVICE_ID_KEY) || FishTTYClient.getPersistedDeviceId() || ''
   );
   const [wsState, setWsState] = useState<WsState>('WS_DISCONNECTED');
-  const [errors, setErrors] = useState<string[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
   const clientRef = useRef<FishTTYClient | null>(null);
   const handleRefs = useRef<Map<string, TerminalHandle>>(new Map());
   const { sessions, activeSessionId, createSession, removeSession, switchSession } = useSession();
@@ -83,9 +96,13 @@ function AppShell() {
         },
         onStateChange(state: WsState) {
           setWsState(state);
+          // WS 激活且无活跃 session 时自动创建
+          if (state === 'WS_ACTIVE') {
+            handleWsActive();
+          }
         },
         onError(err: Error) {
-          addError(err.message);
+          addToast(err.message, 'error');
         },
       });
 
@@ -95,6 +112,39 @@ function AppShell() {
     },
     [serverUrl]
   );
+
+  // ── WS 激活后的自动恢复 ──
+  const handleWsActive = useCallback(() => {
+    const client = clientRef.current;
+    if (!client) return;
+
+    // 若已有活跃 session，不需要自动创建
+    if (client.hasActiveSessions()) return;
+
+    // 检查是否有持久化的历史记录（说明之前使用过）
+    if (FishTTYClient.hasPersistedConnection()) {
+      addToast('检测到历史连接，正在自动创建终端...', 'info');
+      // 延迟一小段时间确保连接稳定
+      setTimeout(() => {
+        autoCreateSession();
+      }, 500);
+    }
+  }, []);
+
+  // ── 自动创建 Session ──
+  const autoCreateSession = useCallback(() => {
+    const client = clientRef.current;
+    if (!client || client.getState() !== 'WS_ACTIVE') return;
+
+    const device = client.getDeviceId();
+    const sid = createSession(device);
+    const cols = 80;
+    const rows = 24;
+    const sent = client.createSession(sid, cols, rows);
+    if (!sent) {
+      addToast('自动创建终端失败，请手动点击 + 终端', 'warning');
+    }
+  }, [createSession]);
 
   // ── 处理 Server 消息 ──
   const handleServerMessage = useCallback(
@@ -120,7 +170,7 @@ function AppShell() {
         case 'sessionCreated': {
           const created = msg.payload.value;
           if (created.status !== 1) {
-            addError(`会话创建失败: ${created.message || '未知错误'}`);
+            addToast(`会话创建失败: ${created.message || '未知错误'}`, 'error');
           }
           break;
         }
@@ -138,7 +188,7 @@ function AppShell() {
 
         case 'errorMsg': {
           const err = msg.payload.value;
-          addError(`[${err.code}] ${err.message}`);
+          handleErrorMsg(err.code, err.message);
           break;
         }
 
@@ -149,6 +199,51 @@ function AppShell() {
     []
   );
 
+  // ── 分级错误处理 ──
+  const handleErrorMsg = useCallback(
+    (code: ErrorCode, message: string) => {
+      switch (code) {
+        case ErrorCode.SESSION_LOST:
+          // Session 已过期，自动创建新终端
+          addToast('终端会话已过期，正在自动创建新会话...', 'warning');
+          setTimeout(() => autoCreateSession(), 300);
+          break;
+
+        case ErrorCode.SESSION_NOT_FOUND:
+          addToast(`会话不存在: ${message}`, 'warning');
+          break;
+
+        case ErrorCode.AGENT_UNREACHABLE:
+          addToast('目标设备不在线，请确认 Agent 已启动', 'error');
+          break;
+
+        case ErrorCode.CHANNEL_FULL:
+          addToast('数据通道拥塞，部分输出已丢弃', 'warning');
+          break;
+
+        case ErrorCode.CONNECTION_TIMEOUT:
+          addToast(`连接超时: ${message}`, 'error');
+          break;
+
+        case ErrorCode.UNAUTHORIZED:
+          addToast('认证失败，请检查 device_id 是否正确', 'error');
+          break;
+
+        case ErrorCode.INTERNAL_ERROR:
+          addToast(`服务端内部错误: ${message}`, 'error');
+          break;
+
+        case ErrorCode.COMMAND_FAILED:
+          addToast(`命令执行失败: ${message}`, 'error');
+          break;
+
+        default:
+          addToast(`[${ErrorCode[code] || code}] ${message}`, 'error');
+      }
+    },
+    [autoCreateSession]
+  );
+
   // ── WS 连上时自动切到终端页 ──
   useEffect(() => {
     if (wsState === 'WS_ACTIVE' && view === 'devices') {
@@ -156,11 +251,17 @@ function AppShell() {
     }
   }, [wsState, view]);
 
-  // ── 错误提示 ──
-  const addError = useCallback((msg: string) => {
-    setErrors((prev) => [...prev.slice(-4), msg]);
+  // ── Toast 管理 ──
+  const addToast = useCallback((message: string, level: ToastLevel = 'error') => {
+    const id = ++toastIdCounter;
+    setToasts((prev) => {
+      // 保留最多 3 条
+      const next = [...prev, { id, message, level }];
+      return next.slice(-3);
+    });
+    // 5 秒后自动移除
     setTimeout(() => {
-      setErrors((prev) => prev.filter((e) => e !== msg));
+      setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 5000);
   }, []);
 
@@ -174,9 +275,9 @@ function AppShell() {
     const rows = 24;
     const sent = clientRef.current.createSession(sid, cols, rows);
     if (!sent) {
-      addError('发送 SessionInit 失败，请刷新页面重试');
+      addToast('发送 SessionInit 失败，请刷新页面重试', 'error');
     }
-  }, [deviceId, createSession, addError]);
+  }, [deviceId, createSession, addToast]);
 
   // ── 销毁终端会话 ──
   const handleDestroySession = useCallback(
@@ -238,7 +339,7 @@ function AppShell() {
           )}
         </div>
 
-        <ErrorToast errors={errors} />
+        <ToastContainer toasts={toasts} />
       </div>
     );
   }
@@ -313,21 +414,24 @@ function AppShell() {
         </div>
       )}
 
-      {/* 错误提示 */}
-      <ErrorToast errors={errors} />
+      {/* 分级 Toast */}
+      <ToastContainer toasts={toasts} />
     </div>
   );
 }
 
-// ── 错误 Toast 组件 ──
+// ── 分级 Toast 组件 ──
 
-function ErrorToast({ errors }: { errors: string[] }) {
-  if (errors.length === 0) return null;
+function ToastContainer({ toasts }: { toasts: Toast[] }) {
+  if (toasts.length === 0) return null;
   return (
-    <div className="error-toast-container">
-      {errors.map((msg, i) => (
-        <div key={i} className="error-toast">
-          {msg}
+    <div className="toast-container">
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast toast--${t.level}`}>
+          <span className={`toast-icon toast-icon--${t.level}`}>
+            {t.level === 'error' ? '✕' : t.level === 'warning' ? '⚠' : 'ℹ'}
+          </span>
+          <span className="toast-message">{t.message}</span>
         </div>
       ))}
     </div>

@@ -9,10 +9,10 @@
 
 ## 2. 错误反馈 — 客户端可见性
 
-- [ ] 2.1 重写 `web/src/ws/client.ts` 的 `ws.onerror` 回调：提取可用错误信息（event.message, event.type），构造包含描述的 Error 并调用 `callbacks.onError`
-- [ ] 2.2 在 `doConnect()` 中添加 10 秒连接超时：使用 `setTimeout`，超时后主动 `ws.close()` 并调用 `callbacks.onError`
-- [ ] 2.3 在 `web/src/App.tsx` 中处理所有新增 errorMsg 场景：`SESSION_LOST` → 自动创建新 Session；`AGENT_UNREACHABLE` → 显示设备离线提示；`CHANNEL_FULL` → 性能警告
-- [ ] 2.4 增强 Toast 组件：支持不同错误级别（error/warning/info）的视觉样式，最多 3 条同时显示
+- [x] 2.1 重写 `web/src/ws/client.ts` 的 `ws.onerror` 回调：提取可用错误信息（event.message, event.type），构造包含描述的 Error 并调用 `callbacks.onError`
+- [x] 2.2 在 `doConnect()` 中添加 10 秒连接超时：使用 `setTimeout`，超时后主动 `ws.close()` 并调用 `callbacks.onError`
+- [x] 2.3 在 `web/src/App.tsx` 中处理所有新增 errorMsg 场景：`SESSION_LOST` → 自动创建新 Session；`AGENT_UNREACHABLE` → 显示设备离线提示；`CHANNEL_FULL` → 性能警告
+- [x] 2.4 增强 Toast 组件：支持不同错误级别（error/warning/info）的视觉样式，最多 3 条同时显示
 
 ## 3. 终端渲染 — WebGL & Unicode
 
@@ -36,21 +36,21 @@
 
 ## 6. 连接韧性 — Ping/Pong & 重连
 
-- [ ] 6.1 在 `web/src/ws/client.ts` 中实现应用层 ping/pong：`setInterval` 每 30s 发送文本帧 "ping"
-- [ ] 6.2 在 `internal/server/adapter/websocket/handler.go` 的读循环中检测文本帧 "ping" → 回复 "pong"
-- [ ] 6.3 客户端添加 pong 超时检测：10s 未收到 pong → 主动 `ws.close()` 触发重连
-- [ ] 6.4 实现重连风暴保护：60s 内重连 >5 次 → 退避上限提升至 30s 并显示持久 Toast
+- [x] 6.1 在 `web/src/ws/client.ts` 中实现应用层 ping/pong：`setInterval` 每 30s 发送文本帧 "ping"
+- [x] 6.2 在 `internal/server/adapter/websocket/handler.go` 的读循环中检测文本帧 "ping" → 回复 "pong"
+- [x] 6.3 客户端添加 pong 超时检测：10s 未收到 pong → 主动 `ws.close()` 触发重连
+- [x] 6.4 实现重连风暴保护：60s 内重连 >5 次 → 退避上限提升至 30s 并显示持久 Toast
 
 ## 7. 状态持久化 & 自动恢复
 
-- [ ] 7.1 在连接成功时将 `deviceId` 和 `fishtty_last_active` 写入 localStorage
-- [ ] 7.2 在 `App.tsx` 的 `onopen` 处理中：若 `activeSessions` 为空且 localStorage 有 `fishtty_last_active`，自动调用 `createSession` + `client.createSession()`
-- [ ] 7.3 session 创建成功时更新 localStorage 的 session 记录
+- [x] 7.1 在连接成功时将 `deviceId` 和 `fishtty_last_active` 写入 localStorage
+- [x] 7.2 在 `App.tsx` 的 `onopen` 处理中：若 `activeSessions` 为空且 localStorage 有 `fishtty_last_active`，自动调用 `createSession` + `client.createSession()`
+- [x] 7.3 session 创建成功时更新 localStorage 的 session 记录
 
 ## 8. 可观测性 & 服务端加固
 
-- [ ] 8.1 新增 `/health` HTTP 端点：返回 JSON `{"status":"ok","agents":N,"mobiles":N,"sessions":N}`，Agent 全部离线时返回 503
-- [ ] 8.2 增大 WebSocket upgrader 缓冲区：`ReadBufferSize` 和 `WriteBufferSize` 从 4096 → 65536
-- [ ] 8.3 在 WebSocket handler 的读循环中添加 close code 检测，区分正常关闭/异常断开/协议错误并记录相应级别日志
-- [ ] 8.4 为 docker-compose 中的 server 服务添加 `healthcheck` 指令（curl /health）
+- [x] 8.1 新增 `/health` HTTP 端点：返回 JSON `{"status":"ok","agents":N,"mobiles":N,"sessions":N}`，Agent 全部离线时返回 503
+- [x] 8.2 增大 WebSocket upgrader 缓冲区：`ReadBufferSize` 和 `WriteBufferSize` 从 4096 → 65536
+- [x] 8.3 在 WebSocket handler 的读循环中添加 close code 检测，区分正常关闭/异常断开/协议错误并记录相应级别日志
+- [x] 8.4 为 docker-compose 中的 server 服务添加 `healthcheck` 指令（curl /health）
 - [ ] 8.5 确认 `sessionOwners` 泄漏修复后，metrics 中的 `fishtty_active_sessions` 正确反映实时数据

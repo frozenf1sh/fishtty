@@ -31,7 +31,7 @@ import (
 )
 
 var Version = "dev"
-var apiPrefixes = []string{"/ws", "/metrics", "/fishtty.v1.FishTTY/"}
+var apiPrefixes = []string{"/ws", "/metrics", "/health", "/fishtty.v1.FishTTY/"}
 
 func main() {
 	// ── 命令行参数（覆盖配置文件） ──
@@ -69,6 +69,7 @@ func main() {
 	tunnelPath, tunnelHTTP := connectrpc.NewHandler(devices, relay).Route()
 	mux.Handle(tunnelPath, tunnelHTTP)
 	mux.Handle("/ws", wspkg.NewHandler(devices, relay))
+	mux.HandleFunc("/health", healthHandler(devices, relay))
 	mux.HandleFunc("/metrics", metricsHandler(devices, relay))
 
 	var staticFS fs.FS
@@ -112,6 +113,28 @@ func main() {
 }
 
 // ── 辅助 ──
+
+func healthHandler(_ *service.DeviceRegistry, relay *service.Relay) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+		agents := relay.AgentCount()
+		mobiles := relay.MobileCount()
+		sessions := relay.SessionCount()
+		status := "ok"
+		httpStatus := http.StatusOK
+
+		// Agent 全部离线时标记为 degraded
+		if agents == 0 {
+			status = "degraded"
+			httpStatus = http.StatusServiceUnavailable
+		}
+
+		w.WriteHeader(httpStatus)
+		fmt.Fprintf(w, `{"status":"%s","agents":%d,"mobiles":%d,"sessions":%d}`+"\n",
+			status, agents, mobiles, sessions)
+	}
+}
 
 func metricsHandler(devices *service.DeviceRegistry, relay *service.Relay) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
