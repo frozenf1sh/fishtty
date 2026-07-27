@@ -8,13 +8,14 @@
 FROM node:22-alpine AS web-builder
 WORKDIR /src/web
 COPY web/package.json web/pnpm-lock.yaml ./
-RUN corepack enable && printf 'onlyBuiltDependencies[]=esbuild\n' > .npmrc && pnpm install --frozen-lockfile
+RUN corepack enable \
+    && corepack prepare pnpm@9.15.9 --activate \
+    && pnpm install --frozen-lockfile
 COPY web/ .
 RUN pnpm run build
 
 # ── 阶段 2：Go 后端构建 ──
 FROM golang:1.26-alpine AS go-builder
-RUN apk add --no-cache git
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
