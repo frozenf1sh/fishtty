@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.fishtty.agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/fishtty-agent</string>
+        <string>--config</string>
+        <string>/usr/local/etc/fishtty/fishtty-agent.yaml</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>WorkingDirectory</key>
+    <string>/tmp</string>
+
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/fishtty-agent.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/fishtty-agent.log</string>
+
+    <!-- 环境变量：token 也可通过此处注入 -->
+    <!--
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>FISHTTY_TOKEN</key>
+        <string>your-secret-token</string>
+    </dict>
+    -->
+</dict>
+</plist>

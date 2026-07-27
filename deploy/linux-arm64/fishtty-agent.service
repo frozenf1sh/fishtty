@@ -1,0 +1,23 @@
+[Unit]
+Description=fishtty Agent — 远程终端守护进程
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/fishtty-agent --config /etc/fishtty/fishtty-agent.yaml
+
+Restart=always
+RestartSec=10
+
+# 安全加固（可选）：以非 root 用户运行
+# User=nobody
+
+WorkingDirectory=/tmp
+LimitNOFILE=4096
+
+# token 也可通过环境变量注入（优先级高于配置文件）
+# Environment=FISHTTY_TOKEN=your-secret-token
+
+[Install]
+WantedBy=multi-user.target

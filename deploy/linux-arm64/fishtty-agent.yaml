@@ -1,0 +1,23 @@
+# ── fishtty-agent 配置文件 ──
+# 安装后请修改以下必填项：server 地址和 token。
+# 更多配置选项见 README。
+
+server: "http://your-server:8001"    # ← 必改：fishtty-server 地址
+
+token: "your-token-here"             # ← 必改：认证令牌
+
+device_id: ""                         # 设备 ID（留空 = 自动使用主机名）
+
+log_level: "info"                     # debug | info | warn | error
+
+heartbeat:
+  interval: 15s                       # 心跳间隔
+  miss_threshold: 3                   # 连续几次未收到 ACK 视为断连
+
+reconnect:
+  min_delay: 1s                       # 重连初始延迟
+  max_delay: 60s                      # 重连最大延迟
+  reset_after: 30s                    # 稳定连接多久后重置退避
+
+ring_buffer:
+  size_kb: 128                        # PTY 输出历史缓冲区（KB）
