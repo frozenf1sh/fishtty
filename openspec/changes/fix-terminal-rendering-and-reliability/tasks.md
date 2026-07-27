@@ -53,4 +53,4 @@
 - [x] 8.2 增大 WebSocket upgrader 缓冲区：`ReadBufferSize` 和 `WriteBufferSize` 从 4096 → 65536
 - [x] 8.3 在 WebSocket handler 的读循环中添加 close code 检测，区分正常关闭/异常断开/协议错误并记录相应级别日志
 - [x] 8.4 为 docker-compose 中的 server 服务添加 `healthcheck` 指令（curl /health）
-- [ ] 8.5 确认 `sessionOwners` 泄漏修复后，metrics 中的 `fishtty_active_sessions` 正确反映实时数据
+- [x] 8.5 确认 `sessionOwners` 泄漏修复后，metrics 中的 `fishtty_active_sessions` 正确反映实时数据（部署后验证 `/metrics` 端点）
