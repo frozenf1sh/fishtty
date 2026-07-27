@@ -52,7 +52,40 @@ jobs:
       - run: cd web && pnpm run build
       - run: cd web && pnpm exec tsc --noEmit
 
-  # ── Docker 镜像构建 & 推送到 ghcr ──
+  # ── Docker 镜像构建（PR 验证，不推送）──
+  docker-build:
+    name: Docker Build (no push)
+    runs-on: ubuntu-latest
+    needs: [proto-lint, go-test, web-build]
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm + 构建前端
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: cd web && pnpm install --frozen-lockfile && pnpm run build
+
+      - name: 配置 Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建 Docker 镜像（不推送）
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: |
+            BUILD_VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Docker 镜像构建 & 推送到 ghcr（仅 main 分支）──
   docker:
     name: Docker Build & Push
     runs-on: ubuntu-latest
