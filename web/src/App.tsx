@@ -159,7 +159,7 @@ function AppShell() {
           const handle = handleRefs.current.get(sid);
           if (handle) {
             // 通过本地回显缓冲区过滤服务端回显重叠
-            const writeData = handle.drainEcho(chunk.data);
+            const writeData = handle.drainEcho(chunk.data, chunk.echoSeq);
             if (writeData.length > 0) {
               handle.term.write(writeData);
             }

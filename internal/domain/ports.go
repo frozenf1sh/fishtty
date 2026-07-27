@@ -89,6 +89,8 @@ type Session interface {
 	WriteStdin(data []byte) error
 	Resize(cols, rows uint32) error
 	ReplayFrom(lastSeq uint64) *fishttyv1.ReattachData
+	SetPendingEchoSeq(seq uint32)       // 记录 Mobile 端的本地回显序号
+	GetAndClearPendingEchoSeq() uint32   // 取出并清空待回传的序号
 	Destroy()
 }
 

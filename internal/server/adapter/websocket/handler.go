@@ -25,7 +25,7 @@ var (
 	upgrader = websocket.Upgrader{
 		ReadBufferSize: 65536, WriteBufferSize: 65536,
 		CheckOrigin:  func(r *http.Request) bool { return true },
-		Subprotocols: []string{subProtocol}, EnableCompression: true,
+		Subprotocols: []string{subProtocol}, EnableCompression: false,
 	}
 	connIDSeq atomic.Uint64
 )

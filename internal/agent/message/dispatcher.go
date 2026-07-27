@@ -82,6 +82,10 @@ func (d *Dispatcher) handleDataChunk(sid string, chunk *fishttyv1.DataChunk) {
 		d.sendError(sid, fishttyv1.ErrorCode_ERROR_CODE_SESSION_NOT_FOUND, "session 不存在")
 		return
 	}
+	// 记录 Mobile 端的本地回显序号，供 readLoop 回传
+	if chunk.EchoSeq > 0 {
+		s.SetPendingEchoSeq(chunk.EchoSeq)
+	}
 	if err := s.WriteStdin(chunk.Data); err != nil {
 		d.logger.Error("写入 PTY 失败", "session_id", sid, "error", err)
 	}

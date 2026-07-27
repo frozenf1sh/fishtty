@@ -3,7 +3,7 @@
  *
  * 集成 WebGL 渲染加速（Canvas 自动回退）、Unicode11 列宽修正、
  * 自适应尺寸（Fit）、50ms Resize 节流、物理键盘控制字符映射，
- * 交替缓冲区感知的本地回显，以及 rAF 批量发送优化。
+ * 交替缓冲区感知的本地回显（序号追踪），以及 rAF 批量发送优化。
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -16,72 +16,100 @@ import { matchKeyEvent } from './keymap';
 import type { FishTTYClient } from '@/ws/client';
 import '@xterm/xterm/css/xterm.css';
 
-// ── 本地回显状态 ──
+// ── 本地回显状态：序号追踪 ──
 
 /**
- * 交替缓冲区感知的本地回显缓冲区。
+ * 基于本地序号的 EchoBuffer。
  *
- * 在正常 shell 模式下：逐字符前缀匹配，去除服务端回显与本地显示的重叠。
- * 在交替缓冲区模式下（vim/less 等全屏 TUI）：直接透传服务端数据，
- * 不进行本地写入或前缀匹配，因为 TUI 的响应不是简单字符回显。
+ * 用单调递增的 echoSeq 追踪每次本地写入，替代逐字符前缀匹配。
+ * 服务端回显 DataChunk 携带 echo_seq，drain 时按序号查找对应的
+ * 本地写入并剥离前缀。对任意 RTT 均正确，不依赖时序假设。
+ *
+ * 交替缓冲区模式下暂停序号追踪，直接透传服务端数据。
  */
 class EchoBuffer {
-  private pending = '';
+  /** 待确认的本地写入：echoSeq → 写入的字符串 */
+  private pending = new Map<number, string>();
   private decoder = new TextDecoder();
+  /** 当前本地序号（单调递增，uint32 回绕） */
+  private echoSeq = 0;
   /** 是否处于交替缓冲区模式（vim、less 等全屏 TUI） */
   inAltBuffer = false;
 
-  /** 将用户输入写入终端并记录到待匹配队列（仅在正常模式下） */
-  writeLocal(term: XTerm, data: string): void {
+  /** 递增序号，返回新序号（带回绕保护） */
+  nextSeq(): number {
+    this.echoSeq++;
+    // uint32 溢出回绕：归零并清空 pending
+    if (this.echoSeq > 0xFFFFFFFF) {
+      this.echoSeq = 1;
+      this.pending.clear();
+    }
+    return this.echoSeq;
+  }
+
+  /**
+   * 将用户输入写入终端并记录序号。
+   * 交替缓冲区模式下跳过本地写入。
+   * @returns 分配的 echoSeq，用于发送时携带
+   */
+  writeLocal(term: XTerm, data: string): number {
     if (this.inAltBuffer) {
-      // 交替缓冲区内：不进行本地回显，信任服务端渲染
-      return;
+      return 0; // 交替缓冲区：不追踪
     }
+    const seq = this.nextSeq();
     term.write(data);
-    this.pending += data;
-    // 防止内存无限增长：截断到 1024 字节
-    if (this.pending.length > 1024) {
-      this.pending = this.pending.slice(-512);
-    }
+    this.pending.set(seq, data);
+    return seq;
   }
 
   /**
    * 消费服务端返回的数据。
-   * - 正常模式：去除与本地回显重复的前缀，返回剩余数据。
+   * - 正常模式：按 echoSeq 查找 pending，匹配时剥离前缀并删除条目。
    * - 交替缓冲区模式：直接透传全部数据。
+   * @param serverData 服务端返回的原始数据
+   * @param echoSeq 服务端携带的 echo_seq（0 = 未追踪）
    */
-  drain(serverData: Uint8Array): Uint8Array {
-    // 交替缓冲区模式：透传，跳过前缀匹配
+  drain(serverData: Uint8Array, echoSeq: number = 0): Uint8Array {
+    // 交替缓冲区模式：透传
     if (this.inAltBuffer) {
       return serverData;
     }
 
-    if (this.pending.length === 0) return serverData;
+    // echoSeq 为 0 表示未启用追踪，回退到简单行为
+    if (echoSeq === 0 || this.pending.size === 0) {
+      // 无 pending 时直接透传
+      if (this.pending.size === 0) return serverData;
+      // 有 pending 但 echoSeq=0：清空并透传（向后兼容旧 agent）
+      this.pending.clear();
+      return serverData;
+    }
 
+    const local = this.pending.get(echoSeq);
+    if (local === undefined) {
+      // 序号未命中（可能是旧序号或已清理）：透传
+      return serverData;
+    }
+
+    // 序号命中：尝试前缀匹配，剥离已本地显示的字符
+    this.pending.delete(echoSeq);
     const serverStr = this.decoder.decode(serverData);
-    let matchLen = 0;
-    const maxLen = Math.min(this.pending.length, serverStr.length);
 
-    while (matchLen < maxLen && this.pending[matchLen] === serverStr[matchLen]) {
+    // 逐字符比较本地写入与服务端回显
+    let matchLen = 0;
+    const maxLen = Math.min(local.length, serverStr.length);
+    while (matchLen < maxLen && local[matchLen] === serverStr[matchLen]) {
       matchLen++;
     }
 
-    if (matchLen > 0) {
-      this.pending = this.pending.slice(matchLen);
-    } else {
-      // 不匹配（如 Tab 补全、Ctrl-C 等）：清空待匹配区
-      this.pending = '';
-    }
-
     if (matchLen >= serverStr.length) {
-      return new Uint8Array(0);
+      return new Uint8Array(0); // 完全匹配，不写入
     }
-    return serverData.slice(matchLen);
+    return serverData.slice(matchLen); // 部分匹配，写入不匹配的尾部
   }
 
-  /** 清空待匹配区（用于 Ctrl-C、Enter 等不可预测场景） */
+  /** 清空所有待确认条目（用于 Ctrl-C、Enter 等不可预测场景） */
   clear(): void {
-    this.pending = '';
+    this.pending.clear();
   }
 }
 
@@ -89,8 +117,8 @@ class EchoBuffer {
 
 export interface TerminalHandle {
   term: XTerm;
-  /** 消费服务端数据，去除本地回显重复前缀 */
-  drainEcho: (data: Uint8Array) => Uint8Array;
+  /** 消费服务端数据，去除本地回显重复前缀。echoSeq 为服务端携带的 echo_seq。 */
+  drainEcho: (data: Uint8Array, echoSeq?: number) => Uint8Array;
 }
 
 // ── Props ──
@@ -144,8 +172,8 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
   const columnsRef = useRef(80);
   const rowsRef = useRef(24);
   const echoRef = useRef<EchoBuffer>(new EchoBuffer());
-  /** rAF 批量发送：累积的输入数据 */
-  const pendingInputRef = useRef<Uint8Array[]>([]);
+  /** rAF 批量发送：累积 {bytes, seq} */
+  const pendingInputRef = useRef<{ bytes: Uint8Array; seq: number }[]>([]);
   const rafScheduledRef = useRef(false);
   const encoderRef = useRef(new TextEncoder());
 
@@ -172,7 +200,7 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
       wordSeparator: ' ()[]{}\'"`',
     });
 
-    // 1. FitAddon — 自适应尺寸（必须最先加载）
+    // 1. FitAddon — 自适应尺寸
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     fitAddonRef.current = fitAddon;
@@ -182,70 +210,48 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
       const webglAddon = new WebglAddon();
       term.loadAddon(webglAddon);
       webglAddonRef.current = webglAddon;
-
-      // WebGL context 丢失时降级到 Canvas
       webglAddon.onContextLoss(() => {
         console.warn('[fishtty] WebGL context 丢失，降级到 Canvas 渲染器');
         webglAddon.dispose();
         webglAddonRef.current = null;
-        try {
-          const canvasAddon = new CanvasAddon();
-          term.loadAddon(canvasAddon);
-        } catch {
-          console.warn('[fishtty] Canvas 渲染器不可用，使用默认 DOM 渲染器');
-        }
+        try { term.loadAddon(new CanvasAddon()); } catch { /* DOM fallback */ }
       });
     } catch {
-      // WebGL 不可用，回退到 Canvas
       console.warn('[fishtty] WebGL 不可用，使用 Canvas 渲染器');
-      try {
-        term.loadAddon(new CanvasAddon());
-      } catch {
-        console.warn('[fishtty] Canvas 渲染器不可用，使用默认 DOM 渲染器');
-      }
+      try { term.loadAddon(new CanvasAddon()); } catch { /* DOM fallback */ }
     }
 
-    // 3. Unicode11 Addon — 修正 CJK/emoji 等宽字符的列宽计算
+    // 3. Unicode11 Addon — 修正 CJK/emoji 列宽
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = '11';
 
-    // 4. 交替缓冲区检测：通过 CSI handler 在解析阶段拦截
+    // 4. 交替缓冲区检测
     const echo = echoRef.current;
     try {
       term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
-        // params[0] 可能是 number | number[]，取第一个值
         const code = Array.isArray(params[0]) ? params[0][0] : params[0];
-        // 1049: 保存光标 + 进入交替缓冲区
-        // 1047: 仅进入交替缓冲区
         if (code === 1049 || code === 1047) {
           echo.inAltBuffer = true;
           echo.clear();
-          console.debug('[fishtty] 进入交替缓冲区 (CSI ?%dh)', code);
         }
-        return false; // 不拦截，让 xterm.js 继续处理
+        return false;
       });
-
       term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
         const code = Array.isArray(params[0]) ? params[0][0] : params[0];
         if (code === 1049 || code === 1047) {
           echo.inAltBuffer = false;
-          console.debug('[fishtty] 退出交替缓冲区 (CSI ?%dl)', code);
         }
         return false;
       });
-    } catch {
-      // registerCsiHandler 在某些 xterm 版本可能不可用，降级为无检测
-      console.warn('[fishtty] registerCsiHandler 不可用，交替缓冲区检测关闭');
-    }
+    } catch { /* fallback */ }
 
     term.open(containerRef.current);
     termRef.current = term;
 
-    // 通知父组件 xterm 已就绪
     if (onTermReady) {
       onTermReady({
         term,
-        drainEcho: (data: Uint8Array) => echoRef.current.drain(data),
+        drainEcho: (data: Uint8Array, echoSeq?: number) => echoRef.current.drain(data, echoSeq),
       });
     }
 
@@ -266,9 +272,7 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
 
   // ── Resize 处理（50ms 节流） ──
   const sendResize = useCallback(() => {
-    if (resizeTimerRef.current) {
-      clearTimeout(resizeTimerRef.current);
-    }
+    if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
       const term = termRef.current;
       if (!term) return;
@@ -282,30 +286,17 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
     }, 50);
   }, [client, sessionId]);
 
-  // 监听窗口 resize / 旋转 / 键盘弹起
   useEffect(() => {
-    const handleResize = () => {
-      fitAddonRef.current?.fit();
-      sendResize();
-    };
-
-    const handleOrientation = () => {
-      setTimeout(handleResize, 100);
-    };
-
+    const handleResize = () => { fitAddonRef.current?.fit(); sendResize(); };
+    const handleOrientation = () => setTimeout(handleResize, 100);
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleOrientation);
-
     const container = containerRef.current;
     let observer: ResizeObserver | null = null;
     if (container) {
-      observer = new ResizeObserver(() => {
-        fitAddonRef.current?.fit();
-        sendResize();
-      });
+      observer = new ResizeObserver(() => { fitAddonRef.current?.fit(); sendResize(); });
       observer.observe(container);
     }
-
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleOrientation);
@@ -313,27 +304,23 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
     };
   }, [sendResize]);
 
-  // ── rAF 批量发送 ──
-  /**
-   * 刷新累积的输入：合并所有 pending Uint8Array → 单次 protobuf 序列化 → 发送。
-   */
+  // ── rAF 批量发送（携带 echo_seq） ──
   const flushPendingInput = useCallback(() => {
     const pending = pendingInputRef.current;
     if (pending.length === 0) {
       rafScheduledRef.current = false;
       return;
     }
-
-    // 计算总字节数
-    const totalLen = pending.reduce((sum, arr) => sum + arr.length, 0);
+    const totalLen = pending.reduce((sum, e) => sum + e.bytes.length, 0);
     const merged = new Uint8Array(totalLen);
     let offset = 0;
-    for (const arr of pending) {
-      merged.set(arr, offset);
-      offset += arr.length;
+    for (const e of pending) {
+      merged.set(e.bytes, offset);
+      offset += e.bytes.length;
     }
-
-    client.sendData(sessionId, merged);
+    // 使用第一个字符的序号作为 batch 的 echo_seq
+    const echoSeq = pending[0].seq;
+    client.sendData(sessionId, merged, echoSeq);
     pendingInputRef.current = [];
     rafScheduledRef.current = false;
   }, [client, sessionId]);
@@ -342,39 +329,25 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-
     const echo = echoRef.current;
 
-    // keydown 事件：处理控制字符和特殊键
+    // keydown: 控制字符和特殊键 —— 立即发送，不经过 rAF
     const handleKey = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
-
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const mapping = matchKeyEvent(e);
       if (mapping) {
         e.preventDefault();
-        // 控制键清空 echo 缓冲区
         echo.clear();
-        // 控制键立即发送，不经过 rAF 合并
-        client.sendData(sessionId, mapping.bytes);
+        // 控制键：echo_seq=0（不追踪回显）
+        client.sendData(sessionId, mapping.bytes, 0);
       }
     };
 
-    // term.onData：处理普通字符输入
-    // 本地回显立即渲染，发送端通过 rAF 合并以减少序列化开销
+    // term.onData: 普通字符 —— 本地回显即时 + rAF 合并发送
     const handleTermData = (data: string) => {
-      const encoder = encoderRef.current;
-      const bytes = encoder.encode(data);
-
-      // 本地回显：立即写入终端（用户感知零延迟）
-      echo.writeLocal(term, data);
-
-      // 发送端：rAF 合并
-      pendingInputRef.current.push(bytes);
+      const bytes = encoderRef.current.encode(data);
+      const seq = echo.writeLocal(term, data);
+      pendingInputRef.current.push({ bytes, seq });
       if (!rafScheduledRef.current) {
         rafScheduledRef.current = true;
         requestAnimationFrame(() => flushPendingInput());
@@ -383,30 +356,20 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
 
     term.onData(handleTermData);
     document.addEventListener('keydown', handleKey);
-
     return () => {
       document.removeEventListener('keydown', handleKey);
     };
   }, [client, sessionId, flushPendingInput]);
 
-  // ── 渲染 ──
   return (
     <div
       ref={containerRef}
       className="terminal-container"
-      style={{
-        width: '100%',
-        height: '100%',
-        display: visible ? 'block' : 'none',
-        overflow: 'hidden',
-      }}
+      style={{ width: '100%', height: '100%', display: visible ? 'block' : 'none', overflow: 'hidden' }}
     />
   );
 }
 
-// ── 导出工具方法 ──
-
-/** 向 xterm.js 实例写入终端输出 */
 export function writeToTerminal(term: XTerm | null, data: Uint8Array): void {
   if (!term) return;
   term.write(data);
