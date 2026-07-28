@@ -167,11 +167,15 @@ jobs:
       - name: 打包 macOS arm64
         run: tar -czf fishtty-agent-darwin-arm64.tar.gz -C deploy/darwin-arm64 .
 
+      - name: 生成 Release Tag
+        id: tag
+        run: echo "value=v$(date +%Y%m%d)-$(echo '${{ github.sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
       - name: 创建 Release 并上传
         uses: softprops/action-gh-release@v2
         with:
-          name: main — ${{ github.sha }}
-          tag_name: build-${{ github.run_number }}-${{ github.run_attempt }}
+          name: ${{ steps.tag.outputs.value }}
+          tag_name: ${{ steps.tag.outputs.value }}
           files: |
             fishtty-agent-linux-amd64.tar.gz
             fishtty-agent-linux-arm64.tar.gz
