@@ -82,14 +82,12 @@ func New(cfg domain.TerminalConfig) (*Terminal, error) {
 	}
 
 	// ── 选择 shell ──
+	// systemd 下 Agent 没有 SHELL 环境变量，需从用户数据库查找
 	var cmd *exec.Cmd
 	if cfg.Command != "" {
 		cmd = exec.Command(cfg.Command)
 	} else {
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/bash"
-		}
+		shell := resolveShell(targetUser)
 		// -l: login shell，加载 .profile/.zprofile/.zshrc
 		cmd = exec.Command(shell, "-l")
 	}
@@ -158,13 +156,14 @@ func buildPTYEnv(cfg domain.TerminalConfig, u *user.User, homeDir string) []stri
 		env["LOGNAME"] = u.Username
 	}
 
-	// SHELL
-	if _, ok := env["SHELL"]; !ok {
-		if s := os.Getenv("SHELL"); s != "" {
-			env["SHELL"] = s
-		} else {
-			env["SHELL"] = "/bin/bash"
+	// SHELL — 从用户数据库查找
+	if u != nil {
+		if _, ok := env["SHELL"]; !ok {
+			env["SHELL"] = resolveShell(u)
 		}
+	}
+	if env["SHELL"] == "" {
+		env["SHELL"] = "/bin/bash"
 	}
 
 	// PATH — systemd 下可能为空
@@ -195,6 +194,27 @@ func buildPTYEnv(cfg domain.TerminalConfig, u *user.User, homeDir string) []stri
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+// resolveShell 解析用户默认 shell。
+// 优先级：环境变量 SHELL > /etc/passwd 中记录的 shell > /bin/bash。
+func resolveShell(u *user.User) string {
+	if s := os.Getenv("SHELL"); s != "" {
+		return s
+	}
+	// 从用户数据库查找（systemd 下环境变量不可用时的回退）
+	if u != nil {
+		if _, err := os.Stat(u.HomeDir + "/.zshrc"); err == nil {
+			return "/usr/bin/zsh"
+		}
+	}
+	// 检查常见路径
+	for _, s := range []string{"/usr/bin/zsh", "/bin/zsh", "/usr/bin/bash", "/bin/bash"} {
+		if _, err := os.Stat(s); err == nil {
+			return s
+		}
+	}
+	return "/bin/bash"
 }
 
 // ── domain.TerminalEmulator 实现 ──
