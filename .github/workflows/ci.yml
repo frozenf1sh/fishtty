@@ -52,6 +52,45 @@ jobs:
       - run: cd web && pnpm run build
       - run: cd web && pnpm exec tsc --noEmit
 
+  # ── 变更检测（仅 push main）──
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+      agent: ${{ steps.filter.outputs.agent }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            server:
+              - 'cmd/server/**'
+              - 'internal/server/**'
+              - 'internal/domain/**'
+              - 'internal/config/**'
+              - 'proto/**'
+              - 'gen/**'
+              - 'pkg/**'
+              - 'web/**'
+              - 'Dockerfile'
+              - 'go.mod'
+              - 'go.sum'
+            agent:
+              - 'cmd/agent/**'
+              - 'internal/agent/**'
+              - 'internal/domain/**'
+              - 'internal/config/**'
+              - 'proto/**'
+              - 'gen/**'
+              - 'pkg/**'
+              - 'deploy/**'
+              - 'Makefile'
+              - 'go.mod'
+              - 'go.sum'
+
   # ── Docker 镜像构建（PR 验证，不推送）──
   docker-build:
     name: Docker Build (no push)
@@ -89,8 +128,8 @@ jobs:
   docker:
     name: Docker Build & Push
     runs-on: ubuntu-latest
-    needs: [proto-lint, go-test, web-build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [proto-lint, go-test, web-build, changes]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.server == 'true'
     permissions:
       contents: read
       packages: write
@@ -144,8 +183,8 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [go-test, changes]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.agent == 'true'
     permissions:
       contents: write
     steps:
@@ -167,11 +206,15 @@ jobs:
       - name: 打包 macOS arm64
         run: tar -czf fishtty-agent-darwin-arm64.tar.gz -C deploy/darwin-arm64 .
 
+      - name: 生成 Release Tag
+        id: tag
+        run: echo "value=v$(date +%Y%m%d)-$(echo '${{ github.sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
       - name: 创建 Release 并上传
         uses: softprops/action-gh-release@v2
         with:
-          name: main — ${{ github.sha }}
-          tag_name: build-${{ github.run_number }}-${{ github.run_attempt }}
+          name: ${{ steps.tag.outputs.value }}
+          tag_name: ${{ steps.tag.outputs.value }}
           files: |
             fishtty-agent-linux-amd64.tar.gz
             fishtty-agent-linux-arm64.tar.gz
