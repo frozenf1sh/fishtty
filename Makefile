@@ -12,7 +12,7 @@
 #   make run-server   — 启动开发 Server
 #   make clean        — 清理构建产物
 
-.PHONY: all build build-server build-agent build-web proto test docker run-server run-agent clean lint
+.PHONY: all build build-server build-agent build-web proto test docker run-server run-agent dev dev-quick clean lint
 
 # 版本号（可通过 git tag 或 CI 注入）
 VERSION ?= dev
@@ -94,6 +94,44 @@ docker:
 
 # ── 本地运行（开发） ──
 
+DEV_PORT   ?= 8080
+DEV_TOKEN  ?= dev-token
+DEV_DEVICE ?= $(shell hostname 2>/dev/null || echo dev-pc)
+
+# 一键启动：先构建前端，再同时启动 server + agent
+# Ctrl+C 优雅终止所有进程
+dev: build-web
+	@echo "╔══════════════════════════════════════════╗"
+	@echo "║   fishtty 本地开发环境                    ║"
+	@echo "║   →  http://localhost:$(DEV_PORT)         ║"
+	@echo "║   按 Ctrl+C 停止所有服务                  ║"
+	@echo "╚══════════════════════════════════════════╝"
+	@trap 'echo ""; echo "🛑 正在停止..."; kill 0; exit 0' INT TERM; \
+	go run ./cmd/server/ --listen :$(DEV_PORT) --web-dir web/dist --log-level debug \
+		2>&1 | while IFS= read -r l; do echo "[server] $$l"; done & \
+	sleep 1; \
+	go run ./cmd/agent/ --server http://localhost:$(DEV_PORT) \
+		--token $(DEV_TOKEN) --device-id $(DEV_DEVICE) --log-level debug \
+		2>&1 | while IFS= read -r l; do echo "[agent]  $$l"; done & \
+	wait
+
+# 跳过前端构建直接启动（适用于已构建过的场景）
+dev-quick:
+	@echo "╔══════════════════════════════════════════╗"
+	@echo "║   fishtty 本地开发环境 (跳过构建)         ║"
+	@echo "║   →  http://localhost:$(DEV_PORT)         ║"
+	@echo "║   按 Ctrl+C 停止所有服务                  ║"
+	@echo "╚══════════════════════════════════════════╝"
+	@trap 'echo ""; echo "🛑 正在停止..."; kill 0; exit 0' INT TERM; \
+	go run ./cmd/server/ --listen :$(DEV_PORT) --web-dir web/dist --log-level debug \
+		2>&1 | while IFS= read -r l; do echo "[server] $$l"; done & \
+	sleep 1; \
+	go run ./cmd/agent/ --server http://localhost:$(DEV_PORT) \
+		--token $(DEV_TOKEN) --device-id $(DEV_DEVICE) --log-level debug \
+		2>&1 | while IFS= read -r l; do echo "[agent]  $$l"; done & \
+	wait
+
+# 单独启动（需要两个终端）
 run-server:
 	go run ./cmd/server/ --listen :8080 --web-dir web/dist --log-level debug
 

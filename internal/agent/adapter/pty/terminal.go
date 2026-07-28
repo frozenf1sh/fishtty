@@ -13,7 +13,6 @@ import (
 	"sync"
 
 	goPty "github.com/creack/pty"
-	"golang.org/x/term"
 
 	"github.com/frozenf1sh/fishpts/internal/domain"
 )
@@ -115,10 +114,11 @@ func New(cfg domain.TerminalConfig) (*Terminal, error) {
 		return nil, fmt.Errorf("pty start: %w", err)
 	}
 
-	// 将 PTY 设为 raw 模式，禁用内核级 ECHO 和 ICANON。
-	// 确保 shell readline 是唯一的远程回显源，避免双重回显。
-	if _, err := term.MakeRaw(int(f.Fd())); err != nil {
-		slog.Warn("PTY raw 模式设置失败，回退到默认模式", "error", err)
+	// 精准设置终端属性：仅禁用内核级 ECHO 和行缓冲 (ICANON)。
+	// 保留 OPOST（输出 \n→\r\n 转换）、ISIG（Ctrl+C 信号）、
+	// ONLCR（换行正确性）——避免 term.MakeRaw 全量 raw 模式导致的换行错乱。
+	if err := setRawMinimal(int(f.Fd())); err != nil {
+		slog.Warn("PTY 终端属性设置失败，回退到默认模式", "error", err)
 	}
 
 	return &Terminal{f: f, cmd: cmd, rows: cfg.Rows, cols: cfg.Cols}, nil
