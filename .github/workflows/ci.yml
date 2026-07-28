@@ -234,15 +234,31 @@ jobs:
 
             ```bash
             # Linux (amd64)
+            curl -sLO https://github.com/${{ github.repository }}/releases/download/latest/fishtty-agent-linux-amd64.tar.gz
             tar -xzf fishtty-agent-linux-amd64.tar.gz && sudo ./install.sh
 
             # Linux (arm64 / 树莓派)
+            curl -sLO https://github.com/${{ github.repository }}/releases/download/latest/fishtty-agent-linux-arm64.tar.gz
             tar -xzf fishtty-agent-linux-arm64.tar.gz && sudo ./install.sh
 
             # macOS (Apple Silicon)
+            curl -sLO https://github.com/${{ github.repository }}/releases/download/latest/fishtty-agent-darwin-arm64.tar.gz
             tar -xzf fishtty-agent-darwin-arm64.tar.gz && ./install.sh
             ```
 
             安装后编辑配置文件填入 server 地址和 token，然后启动守护进程。
           draft: false
           prerelease: false
+
+      - name: 更新 latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest \
+            --title "Latest" \
+            --notes "Always points to the latest agent build (${{ steps.tag.outputs.value }})." \
+            --latest \
+            fishtty-agent-linux-amd64.tar.gz \
+            fishtty-agent-linux-arm64.tar.gz \
+            fishtty-agent-darwin-arm64.tar.gz

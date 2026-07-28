@@ -1,300 +1,331 @@
 # fishtty
 
-通过公网中转远程控制无公网 IP 家用 PC 终端的系统。
+<p align="center">
+  <strong>专为无公网 IP 家用设备打造的高性能、轻量级 Web 远程终端系统</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/badge/Frontend-React_19_|_xterm.js-61DAFB?style=flat&logo=react" alt="Frontend Stack">
+  <img src="https://img.shields.io/badge/Protocol-Connect--RPC_|_Protobuf-37474F?style=flat" alt="Protocol">
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
+</p>
+
+---
+
+**fishtty** 是一款通过公网 VPS 中转、实现反向穿透远程控制局域网 PC/服务器的终端系统。无需公网 IP，无需配置路由器端口映射，即可通过浏览器（尤其是移动端 PWA）获得原生般的终端操作体验。
 
 ```
-┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
-│  🖥 fishtty-agent │     │  🌐 fishtty-server    │     │  📱 fishtty-web  │
-│  (家用 PC, NAT后) │◄───►│  (公网 VPS)           │◄───►│  (PWA 客户端)     │
-│                  │     │                      │     │                  │
-│  creack/pty      │     │  Connect-RPC + Relay │     │  xterm.js WebGL  │
-│  128KB Ring Buf  │     │  WebSocket 网关       │     │  虚拟键盘栏       │
-└─────────────────┘     └──────────────────────┘     └─────────────────┘
+
+┌─────────────────────────┐          ┌─────────────────────────┐          ┌─────────────────────────┐
+│     🖥️ fishtty-agent     │          │    🌐 fishtty-server    │          │      📱 fishtty-web     │
+│   (受控端 PC / NAT 后)   │◄────────►│       (公网 VPS)        │◄────────►│       (PWA 客户端)      │
+│                         │  HTTP/2  │                         │ WebSocket│                         │
+│  • creack/pty           │ Connect- │  • Connect-RPC Relay    │ Protocol │  • xterm.js (WebGL)     │
+│  • 128KB Ring Buffer    │   Stream │  • Web Gateway / Embedded│  v1      │  • Virtual Keyboard     │
+└─────────────────────────┘          └─────────────────────────┘          └─────────────────────────┘
+
 ```
 
-## 特性
+---
 
-- **零配置穿透 NAT**：Agent 主动发起反向长连接，无需端口映射或公网 IP
-- **tmux 级断连恢复**：128 KB 环形缓冲区保存终端历史，重连时自动增量补发
-- **多会话支持**：单 Agent 管理多个 PTY 终端（bash、zsh、claude code…）
-- **移动端优化 PWA**：WebGL 渲染 + 虚拟键盘栏（Esc/Tab/Ctrl+C/方向键/粘贴）
-- **二进制高效协议**：Protobuf + Connect-RPC，无 JSON/Base64 开销
-- **单 Go 二进制部署**：Server 内嵌 PWA 静态文件，一个二进制即可运行
+## ✨ 核心特性
 
-## 快速开始
+- **⚡️ 零配置 NAT 穿透**：Agent 主动向公网发起反向长连接（HTTP/2 双向流），轻松穿透多层 NAT。
+- **🔄 tmux 级断连无缝恢复**：内置 128 KB 环形缓冲区（Ring Buffer）保留终端历史，网络波动重连后自动**增量补发**缺失数据。
+- **🔀 多会话多终端并发**：单 Agent 实例支持管理多个 PTY 终端（Bash、Zsh、Claude Code 等）。
+- **📱 移动端深度优化**：支持 WebGL 高性能渲染，集成针对手机端定制的虚拟按键栏（包含 `Esc`、`Tab`、`Ctrl+C`、方向键、剪贴板等）。
+- **🚀 二进制极简高效协议**：基于 Protobuf + Connect-RPC 传输，相比传统 JSON/Base64 方案节省开销且性能更高。
+- **📦 单二进制开箱即用**：Server 端完美内嵌 PWA 静态资源，单个 Go 二进制文件即可快速部署上线。
 
-### 1. 构建
+---
+
+## 目录
+
+- [✨ 核心特性](#-核心特性)
+- [🏗️ 技术架构](#️-技术架构)
+- [🚀 快速开始](#-快速开始)
+  - [1. 编译构建](#1-编译构建)
+  - [2. 部署 Server（公网 VPS）](#2-部署-server公网-vps)
+  - [3. 部署 Agent（受控端 PC）](#3-部署-agent受控端-pc)
+  - [4. 移动端 / Web 访问](#4-移动端--web-访问)
+- [⚙️ 配置说明](#️-配置说明)
+- [🛠️ 本地开发与 E2E 测试](#️-本地开发与-e2e-测试)
+- [🛠️ 常用开发命令](#️-常用开发命令)
+- [🧰 技术栈](#-技术栈)
+- [📄 许可证](#-许可证)
+
+---
+
+## 🏗️ 技术架构
+
+```
+
+Agent (Connect-RPC Client)
+│
+│  FishTTY.Tunnel (Bidirectional Stream over HTTP/2)
+│  ├── AuthRequest → AuthResponse
+│  ├── SessionInit → SessionCreated
+│  ├── DataChunk (PTY stdout, seq-numbered)
+│  ├── Heartbeat → HeartbeatAck
+│  └── Reattach (delta replay from ring buffer)
+▼
+Server (Relay & Gateway)
+│
+│  WebSocket (/ws - Sub-protocol: fish-tty-v1)
+│  └── Binary Frames (TunnelMessage protobuf)
+▼
+Mobile PWA (React + xterm.js)
+
+```
+
+> [!NOTE]
+> 详细设计与协议文档请参阅 [`openspec/specs/architecture.md`](openspec/specs/architecture.md) 与 [`openspec/specs/protocol.md`](openspec/specs/protocol.md)。
+
+---
+
+## 🚀 快速开始
+
+### 1. 编译构建
+
+**前置需求**：Go 1.23+，Node.js 20+，pnpm，Buf CLI。
 
 ```bash
-# 安装工具链
-go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+# 1. 安装工具链
+go install [connectrpc.com/connect/cmd/protoc-gen-connect-go@latest](https://connectrpc.com/connect/cmd/protoc-gen-connect-go@latest)
 corepack enable && pnpm install
 
-# 生成协议代码 + 构建全部
+# 2. 生成协议代码 & 编译全部产物
 make proto
 make build
+
 ```
 
-产物：
-- `bin/fishtty-server` — 公网中继服务（内嵌 PWA）
-- `bin/fishtty-agent`  — PC 端守护进程
+编译产物说明：
 
-## 配置管理
-
-所有组件使用统一的 YAML 配置文件。优先级：**命令行 > 环境变量 > 配置文件 > 默认值**。
-
-### Server 配置
-
-参见 `configs/fishtty-server.yaml`：
-
-```yaml
-listen: ":8443"
-log_level: "info"
-# tls_cert: "/etc/fishtty/server.crt"   # 生产环境
-# tls_key:  "/etc/fishtty/server.key"
-```
-
-### Agent 配置
-
-参见 `configs/fishtty-agent.yaml`：
-
-```yaml
-server: "https://fishtty.example.com"
-token: "your-device-token"
-device_id: ""          # 留空 = 主机名
-log_level: "info"
-
-heartbeat:
-  interval: 15s
-  miss_threshold: 3
-
-reconnect:
-  min_delay: 1s
-  max_delay: 60s
-  reset_after: 30s
-
-ring_buffer:
-  size_kb: 128
-```
-
-环境变量可覆盖任意配置项：`FISHTTY_TOKEN`、`FISHTTY_SERVER`、`FISHTTY_LOG_LEVEL` 等。
+- `bin/fishtty-server`：公网中继服务端（已内置 PWA 前端资源）
+- `bin/fishtty-agent`：受控端守护进程
 
 ---
 
 ### 2. 部署 Server（公网 VPS）
 
-**Docker Compose（推荐）**：
+#### 方式 A：Docker Compose（推荐）
 
 ```bash
-# 1. 编辑配置
+# 1. 准备 Server 配置文件
 cp configs/fishtty-server.yaml configs/fishtty-server.yaml
-vim configs/fishtty-server.yaml   # 改 listen/log_level
+vim configs/fishtty-server.yaml
 
-# 2. 编辑 Caddyfile 域名
-vim Caddyfile                     # 替换 <your-domain.com>
+# 2. 配置域名与 TLS 终止（编辑 Caddyfile 替换 <your-domain.com>）
+vim Caddyfile
 
-# 3. 启动
+# 3. 启动容器
 docker compose up -d
 
-# 4. 查看日志
+# 4. 查看运行日志
 docker compose logs -f server
+
 ```
 
-**直接运行（开发/内网）**：
+#### 方式 B：直接运行二进制
 
 ```bash
-# 默认配置 + 命令行覆盖
+# 1. 使用默认配置 + 命令行覆盖
 ./bin/fishtty-server --listen :8080 --log-level debug
 
-# 指定配置文件
+# 2. 指定配置文件运行
 ./bin/fishtty-server --config /etc/fishtty/server.yaml
 
-# 启用 TLS
+# 3. 开启原生 TLS 监听
 ./bin/fishtty-server --config server.yaml --tls-cert server.crt --tls-key server.key
+
 ```
 
-### 3. 部署 Agent
+---
 
-Agent 部署包一键生成，包含：二进制 + 配置文件模板 + 守护进程文件 + 安装脚本。
+### 3. 部署 Agent（受控端 PC）
+
+#### 快速下载安装（预编译包）
 
 ```bash
-# 生成全平台部署包
-make deploy-agent-all
+# 自动检测平台架构并下载最新的 Release 包
+case "$(uname -s)" in
+  Darwin) arch=darwin-arm64 ;;
+  Linux)
+    case "$(uname -m)" in
+      aarch64) arch=linux-arm64 ;;
+      *)       arch=linux-amd64 ;;
+    esac ;;
+esac && \
+curl -fsSL "[https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-$](https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-$){arch}.tar.gz" | tar -xz
 
-# 或单平台
-make deploy-agent-linux-amd64     # Linux x86_64
-make deploy-agent-linux-arm64     # Linux ARM64（树莓派等）
-make deploy-agent-darwin-arm64    # macOS Apple Silicon
 ```
 
-输出在 `deploy/` 目录下，每平台一个文件夹。
+下载后编辑 `fishtty-agent.yaml`，填入 VPS 的 `server` 地址与 `token`，随后执行脚本安装。
+
+```bash
+# 生成全平台部署包（包含二进制 + 配置模板 + 守护进程脚本 + 安装脚本）
+make deploy-agent-all
+
+# 或生成指定目标平台
+make deploy-agent-linux-amd64     # Linux x86_64
+make deploy-agent-linux-arm64     # Linux ARM64 (如树莓派)
+make deploy-agent-darwin-arm64    # macOS Apple Silicon
+
+```
+
+构建产物将保存在 `deploy/` 文件夹下。
 
 #### Linux 部署（systemd 守护进程）
 
-```
-1. 将 deploy/linux-amd64/ 整个目录拷贝到目标机器
-2. cd deploy/linux-amd64/
-3. sudo ./install.sh                           # 一键安装
-4. sudo vim /etc/fishtty/fishtty-agent.yaml    # 编辑 server + token
-5. sudo systemctl enable --now fishtty-agent   # 启动并开机自启
+```bash
+# 1. 运行一键安装脚本
+sudo ./install.sh
+
+# 2. 修改配置
+sudo vim /etc/fishtty/fishtty-agent.yaml
+
+# 3. 启动并设置开机自启
+sudo systemctl enable --now fishtty-agent
+
 ```
 
-管理命令：
 ```bash
-systemctl status fishtty-agent       # 查看状态
-journalctl -u fishtty-agent -f        # 实时日志
-systemctl restart fishtty-agent       # 重启
-systemctl stop fishtty-agent          # 停止
+systemctl status fishtty-agent    # 查看服务状态
+journalctl -u fishtty-agent -f     # 实时查看日志
+systemctl restart fishtty-agent    # 重启服务
+systemctl stop fishtty-agent       # 停止服务
+
 ```
 
 #### macOS 部署（launchd 守护进程）
 
-```
-1. 将 deploy/darwin-arm64/ 整个目录拷贝到目标 Mac
-2. cd deploy/darwin-arm64/
-3. ./install.sh                                    # 一键安装
-4. vim /usr/local/etc/fishtty/fishtty-agent.yaml   # 编辑 server + token
-5. launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist  # 启动
-```
-
-管理命令：
 ```bash
-launchctl list | grep fishtty         # 查看状态
-tail -f /usr/local/var/log/fishtty-agent.log  # 实时日志
-launchctl unload ~/Library/LaunchAgents/com.fishtty.agent.plist  # 停止
-launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist    # 启动
+# 1. 执行安装
+./install.sh
+
+# 2. 修改配置
+vim /usr/local/etc/fishtty/fishtty-agent.yaml
+
+# 3. 加载并启动服务
+launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist
+
 ```
-
-> 💡 macOS 下 launchd 的 `RunAtLoad` 已启用，重启后自动运行。
-
-#### 直接运行（调试）
 
 ```bash
-./bin/fishtty-agent \
-  --server http://your-server:8001 \
-  --token my-device-token
-
-# 或使用配置文件
-./bin/fishtty-agent --config ./fishtty-agent.yaml
-```
-
-### 4. 连接移动端
-
-1. 手机浏览器打开 `https://your-server.example.com`
-2. 输入设备 ID 和 Server 地址
-3. 点击「连接设备」→「+ 终端」即可开始远程控制
-
-添加到主屏幕可获得全屏沉浸式 PWA 体验。
-
-## 架构
+launchctl list | grep fishtty                  # 查看服务运行状态
+tail -f /usr/local/var/log/fishtty-agent.log   # 实时查看日志
+launchctl unload ~/Library/LaunchAgents/com.fishtty.agent.plist # 停止服务
 
 ```
-Agent (Connect-RPC 客户端)
-  │
-  │  FishTTY.Tunnel(bidi stream)
-  │  ├── AuthRequest → AuthResponse
-  │  ├── SessionInit → SessionCreated
-  │  ├── DataChunk (PTY stdout, seq-numbered)
-  │  ├── Heartbeat → HeartbeatAck
-  │  └── Reattach (delta replay from ring buffer)
-  │
-  ▼
-Server (Relay)
-  │
-  │  WebSocket /ws
-  │  ├── Binary frames (TunnelMessage protobuf)
-  │  └── Sub-protocol: fish-tty-v1
-  │
-  ▼
-Mobile PWA (React + xterm.js)
+
+---
+
+### 4. 移动端 / Web 访问
+
+1. 手机或电脑浏览器打开 `https://your-server.example.com`。
+2. 输入配置的 **设备 ID** 与 **Server 地址**。
+3. 点击 **「连接设备」** → **「+ 新增终端」** 即可实时操控远端 Shell。
+4. **推荐**：在 iOS Safari 或 Android Chrome 中选择 **“添加到主屏幕”**，获得全屏无边框的 PWA 沉浸体验。
+
+---
+
+## ⚙️ 配置说明
+
+所有组件支持使用统一格式的 YAML 配置文件。
+
+配置覆盖优先级：**命令行参数 > 环境变量 > 配置文件 > 默认值**。
+
+### Server 配置范例 (`fishtty-server.yaml`)
+
+| 配置项 | 说明 | 示例 / 默认值 |
+| --- | --- | --- |
+| `listen` | 监听地址及端口 | `":8443"` |
+| `log_level` | 日志级别 (`debug`, `info`, `warn`, `error`) | `"info"` |
+| `tls_cert` | TLS 证书路径（可选，推荐由反向代理统一处理） | `"/etc/fishtty/server.crt"` |
+| `tls_key` | TLS 私钥路径 | `"/etc/fishtty/server.key"` |
+
+### Agent 配置范例 (`fishtty-agent.yaml`)
+
+```yaml
+server: "[https://fishtty.example.com](https://fishtty.example.com)" # Server 端访问地址
+token: "your-device-token"            # 鉴权 Token
+device_id: ""                         # 设备唯一标识（留空自动使用 Hostname）
+log_level: "info"
+
+heartbeat:
+  interval: 15s                       # 心跳检测间隔
+  miss_threshold: 3                   # 允许丢失心跳的最大次数
+
+reconnect:
+  min_delay: 1s                       # 退避重连最小等待时间
+  max_delay: 60s                      # 退避重连最大等待时间
+  reset_after: 30s                    # 连接稳定运行多长时间后重置退避计数
+
+ring_buffer:
+  size_kb: 128                        # 终端增量历史环形缓冲区大小 (KB)
+
 ```
 
-详细设计文档见 `openspec/specs/architecture.md` 和 `openspec/specs/protocol.md`。
+> [!TIP]
+> 支持通过环境变量直接覆盖任意配置项，例如：`FISHTTY_TOKEN=my-secret-token` 或 `FISHTTY_SERVER=https://vps.example.com`。
 
-## 目录结构
+---
 
-```
-fishpts/
-├── cmd/
-│   ├── agent/main.go       # Agent 入口
-│   └── server/main.go      # Server 入口（内嵌 PWA）
-├── internal/
-│   ├── agent/              # Agent 核心（pty/ringbuffer/session/tunnel）
-│   └── server/             # Server 核心（auth/relay/ws/tunnel_handler）
-├── proto/fishtty/v1/       # Protobuf 协议定义
-├── gen/                    # 生成的 Go/TS 代码
-├── web/                    # PWA 前端
-│   └── src/
-│       ├── ws/client.ts    # WebSocket + Protobuf 客户端
-│       ├── terminal/       # xterm.js 组件 + 虚拟键盘
-│       └── sessions/       # Session 状态管理
-├── test/                   # 集成测试
-├── buf.yaml                # Buf 配置
-├── Makefile                # 构建脚本
-├── Dockerfile              # 多阶段构建
-└── docker-compose.yml      # 生产部署编排
-```
+## 🛠️ 本地开发与 E2E 测试
 
-## 技术栈
+`fishtty` 支持原生 **h2c (Unencrypted HTTP/2)** 模式，无需配置复杂的 TLS 证书即可在本地完成全链路联调。
 
-| 组件 | 技术 |
-|------|------|
-| 协议 | Protobuf + Connect-RPC (Connect-Go) |
-| Agent→Server | Connect-RPC Bidirectional Stream over HTTP/2 |
-| Mobile→Server | WebSocket Binary Frames + Protobuf |
-| PTY 管理 | `github.com/creack/pty` |
-| 前端 | React 19 + xterm.js 5 + WebGL Addon |
-| 构建 | Buf CLI + Vite + pnpm |
-
-## 本地开发与端到端测试
-
-fishtty 支持纯 HTTP (h2c) 模式，零配置即可在本机跑通全部组件。
-
-### 前置条件
-
-- Go 1.23+
-- Node.js 20+ / pnpm
-- (macOS/Linux，PTY 需要 Unix)
-
-### 一键启动
+### 快速本地启动
 
 ```bash
-# 1. 构建前端（首次需要）
+# 1. 编译前端（首次运行或修改 web 代码后执行）
 cd web && pnpm install && pnpm run build && cd ..
 
-# 2. 终端 1：启动 Server（启用 h2c，支持 Connect-RPC 双向流）
+# 2. 终端 1：启动 Server (开启 h2c 模式并加载本地 PWA 静态资源)
 go run ./cmd/server/ --listen :8080 --web-dir web/dist --log-level debug
 
-# 3. 终端 2：启动 Agent（通过 h2c 连接 Server）
+# 3. 终端 2：启动 Agent (通过 h2c 连接本地 Server)
 go run ./cmd/agent/ --server http://localhost:8080 --token dev-token --device-id test-pc --log-level debug
 
-# 4. 浏览器打开 http://localhost:8080
-#    → 输入设备 ID: test-pc → 点击连接 → 点击 + 终端
-#    → 应该看到 shell 提示符（Agent 在本地创建了 PTY）
+# 4. 浏览器访问 http://localhost:8080
+#    -> 输入设备 ID: test-pc -> 点击连接 -> 新建终端
+
 ```
 
-### h2c 说明
+> **原理说明**：当无 TLS 配置时，Server 会自动启用 Go 内部的 `UnencryptedHTTP2` 特性，Agent 则建立 `HTTP/2 Cleartext` 连接，确保 Connect-RPC 双向流在纯 HTTP 环境下依然能够高吞吐运行。
 
-Server 在无 TLS 模式下自动启用 Go 1.24+ 内建的 `UnencryptedHTTP2`，
-Agent 使用 `http2.Transport{AllowHTTP: true}` 建立 HTTP/2 Cleartext 连接。
-这使得 Connect-RPC 双向流在纯 HTTP 环境下正常工作。
+---
 
-生产环境通过 Caddy/Nginx 做 TLS 终止，外部 HTTPS，
-内部到 Server 的结构保持不变。
+## 🛠️ 常用开发命令
 
-## 开发命令
+| 命令 | 说明 |
+| --- | --- |
+| `make proto` | 根据 `.proto` 文件重新生成 Go/TS 代码 |
+| `make build-web` | 仅编译前端 PWA 项目 |
+| `make build` | 完整构建 Web 资产并生成 Server / Agent 二进制文件 |
+| `make test` | 运行单元测试与集成测试 |
+| `make run-server` | 快捷启动开发版 Server (`localhost:8080`) |
+| `make run-agent` | 快捷启动开发版 Agent |
+| `make docker` | 构建 Docker 镜像 |
+| `make lint` | 静态代码分析与类型检查 (buf + vet + tsc) |
 
-```bash
-make proto        # 生成 Protobuf 代码
-make build-web    # 构建前端
-make build        # 构建全部（web + server + agent）
-make test         # 运行全部 27 个测试
-make run-server   # 启动开发 Server (localhost:8080, h2c 模式)
-make run-agent    # 启动开发 Agent（连接 localhost:8080）
-make docker       # 构建 Docker 镜像
-make lint         # 代码检查（buf + vet + tsc）
-```
+---
 
-## 许可证
+## 🧰 技术栈
 
-MIT
+| 模块 | 关键技术 | 说明 |
+| --- | --- | --- |
+| **通讯协议** | Protobuf + Connect-RPC | 基于 HTTP/2 的轻量级 RPC 框架 |
+| **Agent 传输** | Connect-Go Stream | Bidirectional Stream over HTTP/2 |
+| **前端传输** | WebSocket + Protobuf | 二进制传输，极大降低 Protocol 开销 |
+| **PTY 驱动** | `creack/pty` | Go 语言原生 POSIX Terminal / Pseudo-TTY 绑定 |
+| **Web 前端** | React 19 + Vite | PWA 响应式架构 |
+| **终端渲染** | xterm.js 5 + WebGL Addon | GPU 加速终端文本与动画渲染 |
+
+---
+
+## 📄 许可证
+
+本项目基于 [MIT 许可证](https://www.google.com/search?q=LICENSE) 开源。
