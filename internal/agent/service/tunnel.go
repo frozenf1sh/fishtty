@@ -249,8 +249,10 @@ func (ts *TunnelService) heartbeatLoop(ctx context.Context) {
 func (ts *TunnelService) recoverAndCancel(name string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
 		ts.logger.Error(name+" panic，触发隧道重连", "panic", r, "stack", string(debug.Stack()))
-		cancel()
 	}
+	// 无论 panic 还是连接断开导致的正常退出，都必须 cancel 共享 ctx，
+	// 否则 connect() 在 <-ctx.Done() 上永久阻塞，agent 永远不重连。
+	cancel()
 }
 
 // ── tunnelSender ──
