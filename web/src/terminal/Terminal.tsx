@@ -3,7 +3,7 @@
  *
  * 集成 WebGL 渲染加速（Canvas 自动回退）、Unicode11 列宽修正、
  * 自适应尺寸（Fit）、50ms Resize 节流、物理键盘控制字符映射，
- * 交替缓冲区感知的本地回显（序号追踪），以及 rAF 批量发送优化。
+ * 交替缓冲区感知的本地回显（序号追踪），逐字符独立发送避免 echoSeq 错配。
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -75,12 +75,32 @@ class EchoBuffer {
       return serverData;
     }
 
-    // echoSeq 为 0 表示未启用追踪，回退到简单行为
-    if (echoSeq === 0 || this.pending.size === 0) {
+    // echoSeq 为 0 表示未启用追踪（控制键或旧 agent）
+    if (echoSeq === 0) {
       // 无 pending 时直接透传
       if (this.pending.size === 0) return serverData;
-      // 有 pending 但 echoSeq=0：清空并透传（向后兼容旧 agent）
-      this.pending.clear();
+      // 有 pending 但 echoSeq=0：尝试前缀匹配最旧的 pending 条目。
+      // 不再粗暴清空所有 pending，避免丢弃尚未匹配的正常字符回显序号。
+      // 若前缀匹配成功则剥离已回显部分，否则透传（不修改 pending）。
+      const oldestSeq = Math.min(...this.pending.keys());
+      const oldestLocal = this.pending.get(oldestSeq);
+      if (oldestLocal) {
+        const serverStr = this.decoder.decode(serverData);
+        let matchLen = 0;
+        const maxLen = Math.min(oldestLocal.length, serverStr.length);
+        while (matchLen < maxLen && oldestLocal[matchLen] === serverStr[matchLen]) {
+          matchLen++;
+        }
+        if (matchLen > 0) {
+          this.pending.delete(oldestSeq);
+          if (matchLen >= serverStr.length) return new Uint8Array(0);
+          return serverData.slice(matchLen);
+        }
+      }
+      // 无法匹配：透传但不清空 pending（保留给后续 echo）
+      return serverData;
+    }
+    if (this.pending.size === 0) {
       return serverData;
     }
 
@@ -172,9 +192,7 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
   const columnsRef = useRef(80);
   const rowsRef = useRef(24);
   const echoRef = useRef<EchoBuffer>(new EchoBuffer());
-  /** rAF 批量发送：累积 {bytes, seq} */
-  const pendingInputRef = useRef<{ bytes: Uint8Array; seq: number }[]>([]);
-  const rafScheduledRef = useRef(false);
+  /** 注：已移除 rAF 批量发送，改为逐字符独立发送，避免 echoSeq 错配 */
   const encoderRef = useRef(new TextEncoder());
   /** 当前终端是否可见（用于 keydown handler 隔离多 session 按键） */
   const visibleRef = useRef(visible);
@@ -308,27 +326,6 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
     };
   }, [sendResize]);
 
-  // ── rAF 批量发送（携带 echo_seq） ──
-  const flushPendingInput = useCallback(() => {
-    const pending = pendingInputRef.current;
-    if (pending.length === 0) {
-      rafScheduledRef.current = false;
-      return;
-    }
-    const totalLen = pending.reduce((sum, e) => sum + e.bytes.length, 0);
-    const merged = new Uint8Array(totalLen);
-    let offset = 0;
-    for (const e of pending) {
-      merged.set(e.bytes, offset);
-      offset += e.bytes.length;
-    }
-    // 使用第一个字符的序号作为 batch 的 echo_seq
-    const echoSeq = pending[0].seq;
-    client.sendData(sessionId, merged, echoSeq);
-    pendingInputRef.current = [];
-    rafScheduledRef.current = false;
-  }, [client, sessionId]);
-
   // ── 物理键盘映射 ──
   useEffect(() => {
     const term = termRef.current;
@@ -349,15 +346,14 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
       }
     };
 
-    // term.onData: 普通字符 —— 本地回显即时 + rAF 合并发送
+    // term.onData: 普通字符 —— 本地回显即时 + 逐字符独立发送
+    // 注意：不再使用 rAF 批量合并，确保每个字符携带独立的 echoSeq，
+    // 避免多字符合并导致 echoSeq 仅代表第一个字符、后续字符回显无法匹配。
     const handleTermData = (data: string) => {
       const bytes = encoderRef.current.encode(data);
       const seq = echo.writeLocal(term, data);
-      pendingInputRef.current.push({ bytes, seq });
-      if (!rafScheduledRef.current) {
-        rafScheduledRef.current = true;
-        requestAnimationFrame(() => flushPendingInput());
-      }
+      // 每个 onData 调用独立发送一个 DataChunk，echoSeq 精确对应本次写入
+      client.sendData(sessionId, bytes, seq);
     };
 
     term.onData(handleTermData);
@@ -365,7 +361,7 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
     return () => {
       document.removeEventListener('keydown', handleKey);
     };
-  }, [client, sessionId, flushPendingInput]);
+  }, [client, sessionId]);
 
   return (
     <div
