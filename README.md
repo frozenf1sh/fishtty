@@ -40,9 +40,55 @@
 
 ---
 
+## 🚀 一键安装
+
+选择对应系统的命令执行，即可将 `fishtty-agent` 安装到 `/usr/local/bin/`：
+
+### Linux (x86_64)
+
+```bash
+curl -fsSL "https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-linux-amd64.tar.gz" | sudo tar -xz -C /usr/local/bin/ "./fishtty-agent" && sudo chmod +x /usr/local/bin/fishtty-agent
+```
+
+### Linux (ARM64, 树莓派等)
+
+```bash
+curl -fsSL "https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-linux-arm64.tar.gz" | sudo tar -xz -C /usr/local/bin/ "./fishtty-agent" && sudo chmod +x /usr/local/bin/fishtty-agent
+```
+
+### macOS (Apple Silicon)
+
+```bash
+curl -fsSL "https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-darwin-arm64.tar.gz" | sudo tar -xz -C /usr/local/bin/ "./fishtty-agent" && sudo chmod +x /usr/local/bin/fishtty-agent
+```
+
+安装后继续查看 [部署 Agent](#3-部署-agent受控端-pc) 完成配置文件和服务注册。
+
+---
+
+## 🔄 一键升级
+
+### Linux (systemd)
+
+```bash
+curl -fsSL "https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-linux-amd64.tar.gz" | sudo tar -xz -C /usr/local/bin/ "./fishtty-agent" && sudo chmod +x /usr/local/bin/fishtty-agent && sudo systemctl restart fishtty-agent
+```
+
+> ARM64 用户将上面命令中的 `linux-amd64` 替换为 `linux-arm64` 即可。
+
+### macOS (launchd)
+
+```bash
+curl -fsSL "https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-darwin-arm64.tar.gz" | sudo tar -xz -C /usr/local/bin/ "./fishtty-agent" && sudo chmod +x /usr/local/bin/fishtty-agent && launchctl unload ~/Library/LaunchAgents/com.fishtty.agent.plist && launchctl load ~/Library/LaunchAgents/com.fishtty.agent.plist
+```
+
+---
+
 ## 目录
 
 - [✨ 核心特性](#-核心特性)
+- [🚀 一键安装](#-一键安装)
+- [🔄 一键升级](#-一键升级)
 - [🏗️ 技术架构](#️-技术架构)
 - [🚀 快速开始](#-快速开始)
   - [1. 编译构建](#1-编译构建)
@@ -146,36 +192,38 @@ docker compose logs -f server
 
 ### 3. 部署 Agent（受控端 PC）
 
-#### 快速下载安装（预编译包）
+> 二进制安装请使用上方 [一键安装](#-一键安装) 命令，以下为配置文件与服务注册步骤。
+
+#### 配置文件
+
+下载并编辑配置文件，填入你的 VPS 地址和认证 Token：
 
 ```bash
-# 自动检测平台架构并下载最新的 Release 包
-case "$(uname -s)" in
-  Darwin) arch=darwin-arm64 ;;
-  Linux)
-    case "$(uname -m)" in
-      aarch64) arch=linux-arm64 ;;
-      *)       arch=linux-amd64 ;;
-    esac ;;
-esac && \
-curl -fsSL "[https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-$](https://github.com/frozenf1sh/fishtty/releases/latest/download/fishtty-agent-$){arch}.tar.gz" | tar -xz
+# Linux
+sudo mkdir -p /etc/fishtty
+sudo curl -fsSL "https://raw.githubusercontent.com/frozenf1sh/fishtty/main/configs/fishtty-agent.yaml" -o /etc/fishtty/fishtty-agent.yaml
+sudo vim /etc/fishtty/fishtty-agent.yaml
 
+# macOS
+sudo mkdir -p /usr/local/etc/fishtty
+sudo curl -fsSL "https://raw.githubusercontent.com/frozenf1sh/fishtty/main/configs/fishtty-agent.yaml" -o /usr/local/etc/fishtty/fishtty-agent.yaml
+sudo vim /usr/local/etc/fishtty/fishtty-agent.yaml
 ```
 
-下载后编辑 `fishtty-agent.yaml`，填入 VPS 的 `server` 地址与 `token`，随后执行脚本安装。
+> 也可从 [Release 包](https://github.com/frozenf1sh/fishtty/releases) 中解压获取配置模板：`tar -xz "./fishtty-agent.yaml"`。
+
+#### 从源码构建
+
+如需自行编译：
 
 ```bash
-# 生成全平台部署包（包含二进制 + 配置模板 + 守护进程脚本 + 安装脚本）
-make deploy-agent-all
-
-# 或生成指定目标平台
-make deploy-agent-linux-amd64     # Linux x86_64
-make deploy-agent-linux-arm64     # Linux ARM64 (如树莓派)
-make deploy-agent-darwin-arm64    # macOS Apple Silicon
-
+make deploy-agent-all                 # 全平台
+make deploy-agent-linux-amd64         # Linux x86_64
+make deploy-agent-linux-arm64         # Linux ARM64 (树莓派)
+make deploy-agent-darwin-arm64        # macOS Apple Silicon
 ```
 
-构建产物将保存在 `deploy/` 文件夹下。
+构建产物保存在 `deploy/` 目录下。
 
 #### Linux 部署（systemd 守护进程）
 
