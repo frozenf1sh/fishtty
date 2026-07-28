@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"strings"
 	"sync"
+	"syscall"
 
 	goPty "github.com/creack/pty"
 
@@ -104,24 +105,52 @@ func New(cfg domain.TerminalConfig) (*Terminal, error) {
 	// systemd 下 Agent 环境极简，需要主动补齐关键变量
 	cmd.Env = buildPTYEnv(cfg, targetUser, homeDir)
 
-	// ── 启动 PTY ──
-	winSize := &goPty.Winsize{
-		Rows: uint16(cfg.Rows), Cols: uint16(cfg.Cols),
-		X: uint16(cfg.Cols * 8), Y: uint16(cfg.Rows * 16),
-	}
-	f, err := goPty.StartWithSize(cmd, winSize)
+	// ── 创建 PTY 并设置终端属性 ──
+	// 关键：必须在 child 启动前在 slave fd 上设置 termios。
+	// goPty.StartWithSize 返回的是 master fd，在 Linux 上 tcsetattr 对 master
+	// 无效（ENOTTY），所以需要用 goPty.Open() 拿到 slave fd 先设好属性再启动。
+	ptyMaster, ptySlave, err := goPty.Open()
 	if err != nil {
-		return nil, fmt.Errorf("pty start: %w", err)
+		return nil, fmt.Errorf("pty open: %w", err)
 	}
+	defer func() { _ = ptySlave.Close() }() // 父进程关闭 slave
 
 	// 精准设置终端属性：仅禁用内核级 ECHO 和行缓冲 (ICANON)。
 	// 保留 OPOST（输出 \n→\r\n 转换）、ISIG（Ctrl+C 信号）、
 	// ONLCR（换行正确性）——避免 term.MakeRaw 全量 raw 模式导致的换行错乱。
-	if err := setRawMinimal(int(f.Fd())); err != nil {
+	if err := setRawMinimal(int(ptySlave.Fd())); err != nil {
 		slog.Warn("PTY 终端属性设置失败，回退到默认模式", "error", err)
 	}
 
-	return &Terminal{f: f, cmd: cmd, rows: cfg.Rows, cols: cfg.Cols}, nil
+	// 设置窗口大小
+	winSize := &goPty.Winsize{
+		Rows: uint16(cfg.Rows), Cols: uint16(cfg.Cols),
+		X: uint16(cfg.Cols * 8), Y: uint16(cfg.Rows * 16),
+	}
+	if err := goPty.Setsize(ptyMaster, winSize); err != nil {
+		_ = ptyMaster.Close()
+		return nil, fmt.Errorf("pty setsize: %w", err)
+	}
+
+	// 将 child 的 stdin/stdout/stderr 指向 slave
+	cmd.Stdin = ptySlave
+	cmd.Stdout = ptySlave
+	cmd.Stderr = ptySlave
+
+	// 设置新会话和 controlling terminal（模拟 SSH 登录）
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setsid = true
+	cmd.SysProcAttr.Setctty = true
+
+	// 启动子进程
+	if err := cmd.Start(); err != nil {
+		_ = ptyMaster.Close()
+		return nil, fmt.Errorf("cmd start: %w", err)
+	}
+
+	return &Terminal{f: ptyMaster, cmd: cmd, rows: cfg.Rows, cols: cfg.Cols}, nil
 }
 
 // buildPTYEnv 构建 PTY 子进程的完整环境变量。

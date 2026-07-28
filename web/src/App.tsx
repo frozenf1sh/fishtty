@@ -158,11 +158,8 @@ function AppShell() {
 
           const handle = handleRefs.current.get(sid);
           if (handle) {
-            // 通过本地回显缓冲区过滤服务端回显重叠
-            const writeData = handle.drainEcho(chunk.data, chunk.echoSeq);
-            if (writeData.length > 0) {
-              handle.term.write(writeData);
-            }
+            // 无本地回显模式：服务端数据直接写入，xterm 显示完全由 PTY 输出驱动
+            handle.term.write(chunk.data);
           }
           break;
         }
