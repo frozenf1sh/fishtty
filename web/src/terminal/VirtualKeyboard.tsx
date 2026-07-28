@@ -91,7 +91,9 @@ function KeyButton({
   }, [mapping, sessionId, client]);
 
   // 触摸/鼠标按下
-  const handleDown = useCallback(() => {
+  const handleDown = useCallback((e: React.PointerEvent | React.MouseEvent) => {
+    // 阻止浏览器默认焦点转移，保持 xterm.js 焦点不丢失（避免 IME 中断）
+    e.preventDefault();
     setPressing(true);
     isLongPressRef.current = false;
 
@@ -122,7 +124,9 @@ function KeyButton({
   return (
     <button
       className={`vk-btn ${pressing ? 'vk-btn--active' : ''} ${mapping.key === '__paste__' ? 'vk-btn--paste' : ''}`}
+      tabIndex={-1}
       onPointerDown={handleDown}
+      onMouseDown={handleDown}
       onPointerUp={handleUp}
       onPointerLeave={handleUp}
       onPointerCancel={handleUp}

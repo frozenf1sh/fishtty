@@ -36,6 +36,10 @@ func (r *DeviceRegistry) Register(deviceID, token, agentVer, hostname, platform 
 	if token == "" { return nil, fmt.Errorf("token 不能为空") }
 
 	if d, ok := r.devices[deviceID]; ok {
+		// 设备已存在：校验 token 一致性，不一致则拒绝（防止静默忽略 token 变更）
+		if d.token != token {
+			return nil, fmt.Errorf("设备 %s token 不匹配，请检查配置文件", deviceID)
+		}
 		d.agentVer, d.hostname, d.platform = agentVer, hostname, platform
 		return toDomain(d), nil
 	}

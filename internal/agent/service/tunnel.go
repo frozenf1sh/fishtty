@@ -139,11 +139,11 @@ func (ts *TunnelService) connect(parentCtx context.Context) error {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	wg.Add(1); go func() { defer wg.Done(); ts.sendLoop(ctx, conn) }()
-	wg.Add(1); go func() { defer wg.Done(); ts.heartbeatLoop(ctx) }()
+	wg.Add(1); go func() { defer wg.Done(); defer ts.recoverAndCancel("sendLoop", cancel); ts.sendLoop(ctx, conn) }()
+	wg.Add(1); go func() { defer wg.Done(); defer ts.recoverAndCancel("heartbeatLoop", cancel); ts.heartbeatLoop(ctx) }()
 
 	var recvErr error
-	wg.Add(1); go func() { defer wg.Done(); recvErr = ts.recvLoop(ctx, conn) }()
+	wg.Add(1); go func() { defer wg.Done(); defer ts.recoverAndCancel("recvLoop", cancel); recvErr = ts.recvLoop(ctx, conn) }()
 
 	activeStart := time.Now()
 	<-ctx.Done()
@@ -190,7 +190,6 @@ func (ts *TunnelService) authenticate(conn domain.StreamConn) error {
 // ── goroutine 循环 ──
 
 func (ts *TunnelService) sendLoop(ctx context.Context, conn domain.StreamConn) {
-	defer ts.recoverLog("sendLoop")
 	for {
 		select {
 		case <-ctx.Done(): return
@@ -204,7 +203,6 @@ func (ts *TunnelService) sendLoop(ctx context.Context, conn domain.StreamConn) {
 }
 
 func (ts *TunnelService) recvLoop(ctx context.Context, conn domain.StreamConn) error {
-	defer ts.recoverLog("recvLoop")
 	for {
 		msg, err := conn.ReceiveMessage()
 		if err != nil {
@@ -224,7 +222,6 @@ func (ts *TunnelService) recvLoop(ctx context.Context, conn domain.StreamConn) e
 }
 
 func (ts *TunnelService) heartbeatLoop(ctx context.Context) {
-	defer ts.recoverLog("heartbeatLoop")
 	ticker := time.NewTicker(ts.heartbeatCfg.Interval)
 	defer ticker.Stop()
 	missed := 0
@@ -247,9 +244,12 @@ func (ts *TunnelService) heartbeatLoop(ctx context.Context) {
 	}
 }
 
-func (ts *TunnelService) recoverLog(name string) {
+// recoverAndCancel 从 panic 中恢复，记录日志并取消 context。
+// 任一流 goroutine 异常退出时取消共享 ctx，触发所有 goroutine 级联退出和重连。
+func (ts *TunnelService) recoverAndCancel(name string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
-		ts.logger.Error(name+" panic", "panic", r, "stack", string(debug.Stack()))
+		ts.logger.Error(name+" panic，触发隧道重连", "panic", r, "stack", string(debug.Stack()))
+		cancel()
 	}
 }
 

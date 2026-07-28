@@ -176,6 +176,9 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
   const pendingInputRef = useRef<{ bytes: Uint8Array; seq: number }[]>([]);
   const rafScheduledRef = useRef(false);
   const encoderRef = useRef(new TextEncoder());
+  /** 当前终端是否可见（用于 keydown handler 隔离多 session 按键） */
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   // ── 初始化 xterm.js ──
   useEffect(() => {
@@ -263,6 +266,7 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
     }, 50);
 
     return () => {
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
@@ -333,6 +337,8 @@ export default function TerminalView({ sessionId, client, visible, onTermReady }
 
     // keydown: 控制字符和特殊键 —— 立即发送，不经过 rAF
     const handleKey = (e: KeyboardEvent) => {
+      // 仅活跃（可见）session 响应按键，避免多 session 时广播到所有终端
+      if (!visibleRef.current) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const mapping = matchKeyEvent(e);
       if (mapping) {
